@@ -299,9 +299,11 @@ def doRequest():
             parseData(htmls[0])
         else:
             setStatus("Нет маршрутов для этой станции") 
+            setStateBtn(tk.NORMAL)
     else:
         this.LOG.write("Catch request error")
         setStatus("Ошибка: not catch web source.")
+        setStateBtn(tk.NORMAL)
 
 def parseData(html):
     soupDom = BeautifulSoup(str(html), 'html.parser')
