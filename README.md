@@ -1,5 +1,6 @@
 # Elite Trading Tool Companion (ETTT) EDMC Plugin (Only Russian language)
 
+## [Download zip archive](https://github.com/FordeD/ETTC/archive/refs/heads/main.zip)
 ![Plugin preview](https://github.com/FordeD/ETTC/blob/main/plugin.jpg)
 
 # English Install
