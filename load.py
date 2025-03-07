@@ -1,6 +1,7 @@
 """
 Plugin for "HITS"
 """
+import traceback
 from typing import Optional, Tuple
 import sys
 import json
@@ -12,6 +13,7 @@ from urllib.parse import quote
 from threading import Thread
 from logger import LogContext
 import os
+sys.path.insert(0, "./soupsieve")  # Добавляем папку в пути поиска модулей
 
 try: #py3
     import tkinter as tk
@@ -66,7 +68,9 @@ MIN_DEMAND = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND))
 
 
 cmdr_data = None
-ROUTES = None
+ROUTES = []
+ROUTE_INDEX = 0
+ROUTES_COUNT = 0
 SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
@@ -80,9 +84,22 @@ HTTPS_HEADERS = {
 }
 SEARCH_URL = "https://inara.cz/elite/market-traderoutes-search/"
 
+class TradeRoute:
+    def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update):
+        self.station_name = station_name
+        self.system_name = system_name
+        self.distance = distance
+        self.resource = resource
+        self.count = count
+        self.price = price
+        self.revenue = revenue
+        self.update = update
 
 class ETTC():
     findBtn: None
+    prevBtn: None
+    nextBtn: None
+    routesCountLabel: None
     plaseLabel: None
     place: None
     distanceLabel: None
@@ -103,6 +120,8 @@ class ETTC():
 def setStateBtn(state):
     if this.labels.findBtn["state"] != state:
         this.labels.findBtn["state"] = state
+        this.labels.prevBtn["state"] = state
+        this.labels.nextBtn["state"] = state
 
 def setStatus(status):
     this.labels.status["text"] = status
@@ -115,7 +134,6 @@ def plugin_start():
     this.LOG.write("Starting Elite Trading Tool Companion")
     cmdr_data.last = None
     labels = ETTC()
-    this.ROUTES = []
     this.labels = labels
 
     if not MAX_ROUTE_DISTANCE.get():
@@ -181,50 +199,57 @@ def plugin_app(parent: tk.Frame):
     this.labels.findBtn = tk.Button(frame, text="Искать торговый путь", state=tk.DISABLED, command=this.getBestTrade)
     this.labels.findBtn.grid(row=0, column=1, sticky=tk.W)
 
+    this.labels.prevBtn = tk.Button(frame, text="<<", state=tk.DISABLED, command=this.getPrevRoute)
+    this.labels.prevBtn.grid(row=0, column=0, sticky=tk.W)
+    this.labels.nextBtn = tk.Button(frame, text=">>", state=tk.DISABLED, command=this.getNextRoute)
+    this.labels.nextBtn.grid(row=0, column=2, sticky=tk.W)
+
     this.labels.status = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.status.grid(row=1, column=1, sticky=tk.W)
 
+    this.labels.routesCountLabel = tk.Label(frame, text="Пути: 0/0", justify=tk.LEFT)
+    this.labels.routesCountLabel.grid(row=2, column=1, sticky=tk.W)
     this.labels.plaseLabel = tk.Label(frame, text="Назначение:", justify=tk.LEFT)
-    this.labels.plaseLabel.grid(row=2, column=0, sticky=tk.W)
+    this.labels.plaseLabel.grid(row=3, column=0, sticky=tk.W)
     this.labels.place = hll(frame, text="")
     # https://inara.cz/elite/station/?search=[sysyem] [station]
     this.labels.place["url"]= ""
-    this.labels.place.grid(row=2, column=1, columnspan=1, sticky="NSEW")
+    this.labels.place.grid(row=3, column=1, columnspan=1, sticky="NSEW")
 
 
     this.labels.distanceLabel = tk.Label(frame, text="Дистанция:", justify=tk.LEFT)
-    this.labels.distanceLabel.grid(row=3, column=0, sticky=tk.W)
+    this.labels.distanceLabel.grid(row=4, column=0, sticky=tk.W)
     this.labels.distance = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.distance.grid(row=3, column=1, sticky=tk.W)
+    this.labels.distance.grid(row=4, column=1, sticky=tk.W)
 
     this.labels.resourceLabel = tk.Label(frame, text="Ресурс:", justify=tk.LEFT)
-    this.labels.resourceLabel.grid(row=4, column=0, sticky=tk.W)
+    this.labels.resourceLabel.grid(row=5, column=0, sticky=tk.W)
     this.labels.resource = hll(frame, text="")
     # https://www.google.com/search?q=elite+dangerous+[resource]
     this.labels.resource["url"]= ""
-    this.labels.resource.grid(row=4, column=1, columnspan=1, sticky="NSEW")
+    this.labels.resource.grid(row=5, column=1, columnspan=1, sticky="NSEW")
 
     this.labels.supplyLabel = tk.Label(frame, text="Количество:", justify=tk.LEFT)
-    this.labels.supplyLabel.grid(row=5, column=0, sticky=tk.W)
+    this.labels.supplyLabel.grid(row=6, column=0, sticky=tk.W)
     this.labels.supply = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.supply.grid(row=5, column=1, sticky=tk.W)
+    this.labels.supply.grid(row=6, column=1, sticky=tk.W)
 
     this.labels.priceLabel = tk.Label(frame, text="Стоимость:", justify=tk.LEFT)
-    this.labels.priceLabel.grid(row=6, column=0, sticky=tk.W)
+    this.labels.priceLabel.grid(row=7, column=0, sticky=tk.W)
     this.labels.price = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.price.grid(row=6, column=1, sticky=tk.W)
+    this.labels.price.grid(row=7, column=1, sticky=tk.W)
 
     this.labels.earnLabel = tk.Label(frame, text="Прибыль:", justify=tk.LEFT)
-    this.labels.earnLabel.grid(row=7, column=0, sticky=tk.W)
+    this.labels.earnLabel.grid(row=8, column=0, sticky=tk.W)
     this.labels.earn = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.earn.grid(row=7, column=1, sticky=tk.W)
+    this.labels.earn.grid(row=8, column=1, sticky=tk.W)
 
     this.labels.updatedLabel = tk.Label(frame, text="Обновлено:", justify=tk.LEFT)
-    this.labels.updatedLabel.grid(row=8, column=0, sticky=tk.W)
+    this.labels.updatedLabel.grid(row=9, column=0, sticky=tk.W)
     this.labels.updated = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.updated.grid(row=8, column=1, sticky=tk.W)
+    this.labels.updated.grid(row=9, column=1, sticky=tk.W)
 
-    frame.columnconfigure(8, weight=1)
+    frame.columnconfigure(9, weight=1)
 
     this.labels.spacer = tk.Frame(frame)
     return frame
@@ -278,81 +303,108 @@ def getBestTrade():
     else:
         setStatus("Прилетите на станцию!")
 
+def getNextRoute():
+    if this.ROUTE_INDEX < this.ROUTES_COUNT - 1:
+        this.ROUTE_INDEX += 1
+    renderRoute(this.ROUTES[this.ROUTE_INDEX])
+
+def getPrevRoute():
+    if this.ROUTE_INDEX > 0:
+        this.ROUTE_INDEX -= 1
+    renderRoute(this.ROUTES[this.ROUTE_INDEX])
+
+
+
 def doRequest():
-    pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
+    try:
+        pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
 
-    url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(config.get(this.PREFNAME_INCLUDE_CARIERS))+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(config.get(this.PREFNAME_INCLUDE_CARIERS))+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        this.LOG.write(f"{url}")
+        response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
-    response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
+        if response.status_code != requests.codes.ok:
+            setStatus("Ошибка: error code." + str(response.status_code))
 
-    if response.status_code != requests.codes.ok:
-        setStatus("Ошибка: error code." + str(response.status_code))
+        this.IS_REQUESTING = False
 
-    this.IS_REQUESTING = False
-
-    if response.text:
-        soup = BeautifulSoup(response.text, 'html.parser')
-        htmls = soup.findAll("div", {"class": re.compile(r'mainblock traderoutebox taggeditem')}, limit=1)
-
-        setStatus("Путь обрабатывается..") 
-        if htmls:
-            parseData(htmls[0])
+        if response.text:
+            parseData(response.text)
+            renderRoute(this.ROUTES[0])
+            setStatus(f"Пути найдены!")
         else:
-            setStatus("Нет маршрутов для этой станции") 
+            this.LOG.write("Catch request error")
+            setStatus("Ошибка: not catch web source.")
             setStateBtn(tk.NORMAL)
-    else:
-        this.LOG.write("Catch request error")
-        setStatus("Ошибка: not catch web source.")
-        setStateBtn(tk.NORMAL)
+    except Exception as e:
+        # Проверяем, содержит ли ошибка 'NoneType' object is not callable
+        if "'NoneType' object is not callable" in str(e):
+            setStatus("Маршруты от станции отсутсвуют")
+            setStateBtn(tk.NORMAL)
+        else:
+            setStatus(f"Ошибка: {e}")
+            this.LOG.write(f"{e}")
+            this.LOG.write(f"{traceback.format_exc()}")
+            setStateBtn(tk.NORMAL)
 
 def parseData(html):
-    soupDom = BeautifulSoup(str(html), 'html.parser')
-    stationDom = soupDom.findAll("span", {"class": re.compile(r'standardcase standardcolor nowrap')})
-    systemDom = soupDom.findAll("span", {"class": re.compile(r'uppercase nowrap')})
-    distDom = soupDom.findAll("span", {"class": re.compile(r'bigger')})
-    resourceDom = soupDom.findAll("span", {"class": re.compile(r'avoidwrap')})
+    soup = BeautifulSoup(html, 'html.parser')
+    this.ROUTES = []
+    
+    for block in soup.find_all("div", class_="mainblock traderoutebox taggeditem", attrs={"data-tags": '["1"]'}):
+        try:
+            # Извлечение имени станции
+            station_elem = block.select_one("div:nth-of-type(1) a span.standardcase.standardcolor.nowrap")
+            station_text = station_elem.text
+            station_name = station_text.split(" | ")[0].strip()
+            if station_elem.find("span"):
+                station_name += " " + station_elem.find("span").text.strip()
+            
+            # Извлечение имени системы
+            system_name = block.select_one("div:nth-of-type(1) a span.uppercase.nowrap").text.strip()
+            
+            # Дистанция
+            distance = block.select_one("div:nth-of-type(10) div:nth-of-type(1) div:nth-of-type(1) div.itempairvalue.itempairvalueright span.bigger").text.strip()
+            
+            # Ресурс
+            resource = block.select_one(".traderouteboxtoright div:nth-of-type(1) .itempairvalue a span.avoidwrap").text.strip()
+            
+            # Количество
+            count = block.select_one(".traderouteboxtoright div:nth-of-type(3) .itempairvalue").text.strip()
+            count = re.sub(r",", "", count).split("\ue84e︎")[0]  # Убираем запятые
+            
+            # Цена
+            price = block.select_one(".traderouteboxtoright div:nth-of-type(2) .itempairvalue").text.strip()
+            price = re.sub(r",", "", price).split(" ")[0]
+            
+            # Доход
+            revenue = block.select_one("div:nth-of-type(10) .traderouteboxprofit div:nth-of-type(3) .itempairvalue.itempairvalueright").text.strip()
+            revenue = re.sub(r",", "", revenue).split(" ")[0]
+            
+            # Дата обновления
+            update = block.select_one("div:nth-of-type(10) div:nth-of-type(1) div:nth-of-type(2) .itempairvalue.itempairvalueright").text.strip()
+            
+            this.ROUTES.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update))
+        except AttributeError:
+            continue  # Пропускаем элементы с неполными данными
 
-    countValueDom = soupDom.findAll("div", {"class": re.compile(r'itempairvalue')})
-    countRegGroups = re.search(r'([0-9,]+)', str(countValueDom[3]))
+    this.ROUTE_INDEX = 0
+    this.ROUTES_COUNT = len(this.ROUTES)
 
-    priceValueDom = soupDom.findAll("div", {"class": re.compile(r'itempairvalue')})
-    priceRegGroups = re.search(r'([0-9,]+)', str(priceValueDom[2]))
+def renderRoute(route):
+    try:
+        this.labels.routesCountLabel["text"] = f"Пути: {this.ROUTE_INDEX+1}/{this.ROUTES_COUNT}"
+        this.labels.place["text"] = f"{route.station_name} [{route.system_name}]"
+        this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
+        this.labels.distance["text"] = route.distance
+        this.labels.resource["text"] = route.resource
+        this.labels.resource["url"] = f"https://elite-dangerous.fandom.com/wiki/{quote(route.resource)}"
+        this.labels.supply["text"] = f"{int(route.count):,} на складе"
+        this.labels.price["text"] = f"{int(route.price):,} Кред./шт"
+        this.labels.earn["text"] = f"{int(route.revenue):,} Кред."
+        this.labels.updated["text"] = route.update
 
-    revenueValueDom = soupDom.findAll("span", {"class": re.compile(r'major')})
-    revenueRegGroups = re.search(r'([0-9,]+)\b', str(revenueValueDom[0]))
-    dateDom = soupDom.findAll("div", {"class": re.compile(r'itempairvalue itempairvalueright')})
-
-    stationRegGroups = re.search(r'([a-zA-Z\b ]+)<wbr/>', str(stationDom[1]))
-    systemRegGroups = re.search(r'([a-zA-Z-\[\]0-9. ]+)</span>', str(systemDom[1]))
-    distRegGroups = re.search(r'([a-zA-Z-\[\]0-9. ]+)</span>', str(distDom[0]))
-    resourceRegGroups = re.search(r'([a-zA-Z-\[\]0-9. ]+)</span>', str(resourceDom[0]))
-    updateRegGroups = re.search(r'([a-zA-Z-\[\]0-9. ]+)</div>', str(dateDom[1]))
-
-    FOUND_STATION_NAME = stationRegGroups.group(1)
-    FOUND_SYSTEM_NAME = systemRegGroups.group(1)
-    FOUND_DISTANTION = distRegGroups.group(1)
-    FOUND_RESOURCE = resourceRegGroups.group(1)
-    FOUND_COUNT = str(int(countRegGroups.group(0).replace(",", "")))
-    FOUND_PRICE = str(int(priceRegGroups.group(0).replace(",", "")))
-    FOUND_REVERNUE = str(int(revenueRegGroups.group(0).replace(",", ""))*int(config.get(this.PREFNAME_MIN_CAPACITY)))
-    FOUND_UPDATE = updateRegGroups.group(1)
-
-    renderRoute(FOUND_STATION_NAME, FOUND_SYSTEM_NAME, FOUND_DISTANTION, FOUND_RESOURCE, FOUND_COUNT, FOUND_PRICE, FOUND_REVERNUE, FOUND_UPDATE)
-
-def renderRoute(station, system, dist, resource, count, price, revenue, update):
-    this.labels.place["text"] = station + " [" + system + "]"
-    pl1 = quote(system +"["+ station+"]")
-    # https://inara.cz/elite/station/?search=[sysyem] [station]
-    this.labels.place["url"] = "https://inara.cz/elite/station/?search="+pl1
-    this.labels.distance["text"] = dist
-    this.labels.resource["text"]= resource
-    pl2 = quote(resource)
-    # "https://elite-dangerous.fandom.com/wiki/[resource]
-    this.labels.resource["url"] = "https://elite-dangerous.fandom.com/wiki/"+pl2
-    this.labels.supply["text"] = '{:,}'.format(int(count)) + " на хранении"
-    this.labels.price["text"] = '{:,}'.format(int(price)) + " Кред./шт"
-    this.labels.earn["text"] = '{:,}'.format(int(revenue)) + " Кред."
-    this.labels.updated["text"] = update
-
-    setStatus("Путь найден!")
-    setStateBtn(tk.NORMAL)
+        setStateBtn(tk.NORMAL)
+    except Exception as e:
+        this.LOG.write(f"{e}")
+        this.LOG.write(f"{traceback.format_exc()}")
