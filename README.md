@@ -1,7 +1,10 @@
 # Elite Trading Tool Companion (ETTС) EDMC Plugin (Only Russian language)
 
+[![Github All Releases](https://img.shields.io/github/downloads/FordeD/ETTC/latest/total)]() ![GitHub repo size](https://img.shields.io/github/repo-size/FordeD/ETTC) ![GitHub Repo stars](https://img.shields.io/github/stars/FordeD/ETTC)
+
+*********
 ## [Download zip archive](https://github.com/FordeD/ETTC/archive/refs/heads/main.zip)
-![Plugin preview](https://github.com/FordeD/ETTC/blob/main/plugin.png)
+![Plugin preview](https://github.com/FordeD/ETTC/blob/main/plugin.png) 
 
 # English. Install
 This is a simple plugin for [EDMarketConnector](https://github.com/Marginal/EDMarketConnector/wiki), based on the [Inara trading search](https://inara.cz/elite/market-traderoutes-search/) site, for find to find the best one-way trade route
