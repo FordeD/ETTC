@@ -32,7 +32,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.2.0"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -46,6 +46,8 @@ DEFAULT_MAX_STATION_DISTANCE = 10000
 DEFAULT_INCLUDE_CARIERS = 1
 DEFAULT_MIN_CAPACITY = 720
 DEFAULT_MIN_DEMAND = 0
+DEFAULT_MIN_DEMAND_SEARCH = 0
+DEFAULT_DEBUG_MODE = 0
 
 ITEMS = dict([
     ("Wine", "Вино"),
@@ -314,12 +316,14 @@ ITEMS = dict([
 PREFNAME_MAX_ROUTE_DISTANCE = "Макс. расстояние маршрута" #pi1
 PREFNAME_MAX_STATION_DISTANCE = "Макс. расстояние до станции" #pi6
 PREFNAME_MIN_SUPPLY = "Мин. поставки(0,100,500,1000,2500,5000,10000,50000)" # pi2
-PREFNAME_MAX_PRICE_AGE = "Макс. возраст цены(1,2,3,7,30,180)" #pi3
+PREFNAME_MAX_PRICE_AGE = "Макс. время обновления(кол-во часов)" #pi3
 PREFNAME_LANDING_PAD = "Мин. посадочная площадка(1/2/3)" #pi4
 PREFNAME_INCLUDE_SURFACES = "Искать на планетах(0/1/2)" #pi5
-PREFNAME_INCLUDE_CARIERS = "Использовать корабли носители(1/0)" #pi7
+PREFNAME_INCLUDE_CARIERS = "Использовать корабли носители(0/1)" #pi7
 PREFNAME_MIN_CAPACITY = "Грузовместимость(720)" # pi10
 PREFNAME_MIN_DEMAND = "Мин. спрос(0,100,500,1000,2500,5000,10000,50000)" # pi13
+PREFNAME_MIN_DEMAND_SEARCH = "Мин. качество спроса (0/1/2/3)"
+PREFNAME_DEBUG_MODE = "Включить отладку(0/1)"
 
 MAX_ROUTE_DISTANCE = tk.StringVar(value=config.get(PREFNAME_MAX_ROUTE_DISTANCE))
 MIN_SUPPLY = tk.StringVar(value=config.get(PREFNAME_MIN_SUPPLY))
@@ -330,6 +334,8 @@ MAX_STATION_DISTANCE = tk.StringVar(value=config.get(PREFNAME_MAX_STATION_DISTAN
 INCLUDE_CARIERS = tk.StringVar(value=config.get(PREFNAME_INCLUDE_CARIERS))
 MIN_CAPACITY = tk.StringVar(value=config.get(PREFNAME_MIN_CAPACITY))
 MIN_DEMAND = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND))
+MIN_DEMAND_SEARCH = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND_SEARCH))
+DEBUG_MODE = tk.StringVar(value=config.get(PREFNAME_DEBUG_MODE))
 
 
 
@@ -340,6 +346,9 @@ ROUTES_COUNT = 0
 SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
+# Для тестов
+STAR_SYSTEM = "Aornum"
+STATION = "Agassiz City"
 IS_REQUESTING = False
 HTTPS_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Safari/537.36', 
@@ -352,7 +361,7 @@ SEARCH_IMPORT = False
 SEARCH_URL = "https://inara.cz/elite/market-traderoutes-search/"
 
 class TradeRoute:
-    def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update):
+    def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand):
         self.station_name = station_name
         self.system_name = system_name
         self.distance = distance
@@ -361,6 +370,9 @@ class TradeRoute:
         self.price = price
         self.revenue = revenue
         self.update = update
+        self.sell_percent = sell_percent
+        self.sell_per_item = sell_per_item
+        self.demand = demand
 
 class ETTC():
     searchImportBtn: None
@@ -379,8 +391,11 @@ class ETTC():
     supply: None
     priceLabel: None
     price: None
+    demandLabel: None
+    demand: None
     earnLabel: None
     earn: None
+    detailEarn: None
     updatedLabel: None
     updated: None
     status: None
@@ -433,6 +448,12 @@ def plugin_start():
     if not MIN_DEMAND.get():
         MIN_DEMAND.set(str(DEFAULT_MIN_DEMAND))
         config.set(PREFNAME_MIN_DEMAND, str(DEFAULT_MIN_DEMAND))
+    if not MIN_DEMAND_SEARCH.get():
+        MIN_DEMAND_SEARCH.set(str(DEFAULT_MIN_DEMAND_SEARCH))
+        config.set(PREFNAME_MIN_DEMAND_SEARCH, str(DEFAULT_MIN_DEMAND_SEARCH))
+    if not DEBUG_MODE.get():
+        DEBUG_MODE.set(str(DEFAULT_DEBUG_MODE))
+        config.set(PREFNAME_DEBUG_MODE, str(DEFAULT_DEBUG_MODE))
 
     this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Load config plugin")
     return this.PLUGIN_NAME
@@ -451,6 +472,8 @@ def prefs_changed(cmdr, isbeta):
     config.set(PREFNAME_INCLUDE_CARIERS, INCLUDE_CARIERS.get())
     config.set(PREFNAME_MIN_CAPACITY, MIN_CAPACITY.get())
     config.set(PREFNAME_MIN_DEMAND, MIN_DEMAND.get())
+    config.set(PREFNAME_MIN_DEMAND_SEARCH, MIN_DEMAND_SEARCH.get())
+    config.set(PREFNAME_DEBUG_MODE, DEBUG_MODE.get())
 
 def journal_entry(cmdr, isbeta, system, station, entry, state):
     if this.STAR_SYSTEM is not system or this.STATION is not station:
@@ -524,17 +547,25 @@ def plugin_app(parent: tk.Frame):
     this.labels.price = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.price.grid(row=8, column=1, columnspan=2, sticky=tk.W)
 
+    this.labels.demandLabel = tk.Label(frame, text="Спрос:", justify=tk.LEFT)
+    this.labels.demandLabel.grid(row=9, column=0, sticky=tk.W)
+    this.labels.demand = tk.Label(frame, text="", justify=tk.LEFT)
+    this.labels.demand.grid(row=9, column=1, columnspan=2, sticky=tk.W)
+
     this.labels.earnLabel = tk.Label(frame, text="Прибыль:", justify=tk.LEFT)
-    this.labels.earnLabel.grid(row=9, column=0, sticky=tk.W)
+    this.labels.earnLabel.grid(row=10, column=0, sticky=tk.W)
     this.labels.earn = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.earn.grid(row=9, column=1, columnspan=2, sticky=tk.W)
+    this.labels.earn.grid(row=10, column=1, columnspan=2, sticky=tk.W)
+
+    this.labels.detailEarn = tk.Label(frame, text="", justify=tk.LEFT)
+    this.labels.detailEarn.grid(row=11, column=1, columnspan=2, sticky=tk.W)
 
     this.labels.updatedLabel = tk.Label(frame, text="Обновлено:", justify=tk.LEFT)
-    this.labels.updatedLabel.grid(row=10, column=0, sticky=tk.W)
+    this.labels.updatedLabel.grid(row=12, column=0, sticky=tk.W)
     this.labels.updated = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.updated.grid(row=10, column=1, columnspan=2, sticky=tk.W)
+    this.labels.updated.grid(row=12, column=1, columnspan=2, sticky=tk.W)
 
-    frame.columnconfigure(10, weight=1)
+    frame.columnconfigure(12, weight=1)
 
     this.labels.spacer = tk.Frame(frame)
     setStateBtn(tk.NORMAL)
@@ -566,12 +597,30 @@ def plugin_prefs(parent, cmdr, isbeta):
     nb.Label(frame, text=this.PREFNAME_MIN_DEMAND).grid(padx=10, row=17, sticky=tk.W)
     nb.Entry(frame, textvariable=this.MIN_DEMAND).grid(padx=10, row=17, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_INCLUDE_SURFACES).grid(padx=10, row=18, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.INCLUDE_SURFACES).grid(padx=10, row=18, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MIN_DEMAND_SEARCH).grid(padx=10, row=18, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MIN_DEMAND_SEARCH).grid(padx=10, row=18, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_INCLUDE_CARIERS).grid(padx=10, row=19, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.INCLUDE_CARIERS).grid(padx=10, row=19, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_INCLUDE_SURFACES).grid(padx=10, row=19, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.INCLUDE_SURFACES).grid(padx=10, row=19, column=1, sticky=tk.EW)
 
+    nb.Label(frame, text=this.PREFNAME_INCLUDE_CARIERS).grid(padx=10, row=20, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.INCLUDE_CARIERS).grid(padx=10, row=20, column=1, sticky=tk.EW)
+
+    nb.Label(frame, text=this.PREFNAME_DEBUG_MODE).grid(padx=10, row=20, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.DEBUG_MODE).grid(padx=10, row=20, column=1, sticky=tk.EW)
+
+    nb.Label(frame, text="Помощь:").grid(padx=10, row=24, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Макс. расстояние маршрута - максимальное расстояние в единицах Ly (световых лет) от текущей системы").grid(padx=10, row=25, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Макс. расстояние до станции - максимальное расстояние в световых секундах до станции к которой будет проложен маршрут").grid(padx=10, row=26, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Грузоподъемность - количество места в тоннах для покупки и продажи товаров (учитывается для рассчета прибыли)").grid(padx=10, row=27, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Макс. время обновления - количество часов с последнего обновления (количество часов)").grid(padx=10, row=28, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Мин. посадочная площадка - размер посадочной площадки станции где нужно продать товар (1-малая, 2-средняя, 3-большая)").grid(padx=10, row=29, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Мин. поставки - минимальный объем покупаемого товара в единицах (0-любое, 100,500,1000,2500,5000,10000,50000)").grid(padx=10, row=30, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Мин. спрос - минимальное количество продаваемого товара в единицах (0-любое, 100,500,1000,2500,5000,10000,50000)").grid(padx=10, row=31, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Мин. качество спроса - минимальное качество продаваемого товара(0-любое, 1-низкий, 2-стандарт, 3-высокий)").grid(padx=10, row=32, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Искать на планетах - нужен ли поиск торговых маршрутов на планетах (0 - Нет, 1 - Да, 2 - Да + станции Одиссеи)").grid(padx=10, row=33, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Искать корабли носители - нужен ли поиск торговых маршрутов через корабли-носители (0 - Нет, 1 - Да)").grid(padx=10, row=34, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Включить отладку - включить режим отладки в логах (0 - нет, 1 - да)").grid(padx=10, row=35, columnspan=2, sticky=tk.W)
 
     return frame
 
@@ -617,8 +666,19 @@ def getPrevRoute():
 def doRequest():
     try:
         pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
+        # Переворачивание значений для фильтра по кораблям-носителям
+        cariers = 1 - int(config.get(this.PREFNAME_INCLUDE_CARIERS))
+        # Переворачивание значений для фильтра по наземным станциям
+        surface = int(config.get(this.PREFNAME_INCLUDE_SURFACES))
+        match surface:
+            case 0:
+                surface = 1
+            case 1:
+                surface = 2
+            case 2:
+                surface = 0
 
-        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(config.get(this.PREFNAME_INCLUDE_CARIERS))+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
         this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search routes from: {url}")
         response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
@@ -629,8 +689,14 @@ def doRequest():
 
         if response.text:
             parseData(response.text)
-            renderRoute(this.ROUTES[0])
-            setStatus(f"Пути найдены!")
+            if this.ROUTES_COUNT > 0:
+                renderRoute(this.ROUTES[0])
+                setStatus(f"Пути найдены!")
+            else:
+                if this.SEARCH_IMPORT == 0:
+                    setStatus(f"От станции нет путей!")
+                else:
+                    setStatus(f"На станцию нет путей!")
         else:
             this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Catch request error")
             setStatus("Ошибка: невозможно найти маршруты.")
@@ -648,7 +714,8 @@ def doRequest():
 
 def parseData(html):
     soup = BeautifulSoup(html, 'html.parser')
-    this.ROUTES = []
+    this.ROUTES.clear()
+    timed_routes = []
     route_type = 1
     station_elem_path = "div:nth-of-type(2) > a > span.standardcase.standardcolor.nowrap"
     system_elem_path = "div:nth-of-type(2) > a > span.uppercase.nowrap"
@@ -658,12 +725,16 @@ def parseData(html):
     price_path = ".traderouteboxtoright > div:nth-of-type(2) > .itempairvalue"
     revenue_path = "div:nth-of-type(10) > .traderouteboxprofit > div:nth-of-type(3) > .itempairvalue.itempairvalueright"
     update_path = "div:nth-of-type(10) > div:nth-of-type(1) > div:nth-of-type(2) > .itempairvalue.itempairvalueright"
+    sell_percent_path = "div:nth-of-type(10) > .traderouteboxprofit > div:nth-of-type(2) > .itempairvalue.itempairvalueright"
+    sell_per_item_path = "div:nth-of-type(10) > .traderouteboxprofit > div:nth-of-type(1) > .itempairvalue.itempairvalueright"
+    demand_path = ".traderouteboxfromleft > div:nth-of-type(3) > .itempairvalue"
 
     if this.SEARCH_IMPORT == 1:
         route_type = 2
         recource_path = ".traderouteboxfromright > div:nth-of-type(1) > .itempairvalue > a > span.avoidwrap"
         count_path = ".traderouteboxtoleft > div:nth-of-type(3) > .itempairvalue"
         price_path = ".traderouteboxtoleft > div:nth-of-type(2) > .itempairvalue"
+        demand_path = ".traderouteboxfromright > div:nth-of-type(3) > .itempairvalue"
         
     
     for block in soup.find_all("div", class_="mainblock traderoutebox taggeditem", attrs={"data-tags": f'["{route_type}"]'}):
@@ -686,15 +757,42 @@ def parseData(html):
             
             # Количество
             count = block.select_one(count_path).text.strip()
-            count = re.sub(r",", "", count).split("\ue84e︎")[0]  # Убираем запятые
-            
+            count = re.sub(r",", "", count)  # Убираем запятые
+            count = re.sub(r'\D', '', count) # Убираем спец. символ ︎
+
+            # helpmarkleft - нет спроса
+            # supplydemandicon0 - низкий
+            # отсутсвует 
+            # supplydemandicon3 - высокий
+            demandText = str(block.select_one(demand_path))
+            demand = 2
+            match demandText:
+                case t if "helpmarkleft" in t:
+                    demand = 0
+                case t if "supplydemandicon0" in t:
+                    demand = 1
+                case t if "supplydemandicon3" in t:
+                    demand = 3
+                case _:
+                    demand = 2
+
             # Цена
             price = block.select_one(price_path).text.strip()
-            price = re.sub(r",", "", price).split(" ")[0]
+            price = re.sub(r",", "", price)
+            price = re.sub(r'\D', '', price)
+
+            sell_per_item = block.select_one(sell_per_item_path).text.strip() 
+            sell_per_item = re.sub(r",", "", sell_per_item)  # Убираем запятые
+            sell_per_item = re.sub(r'\D', '', sell_per_item) # Убираем спец. символ ︎
+
+            sell_percent = block.select_one(sell_percent_path).text.strip()
+            sell_percent = re.sub(r",", "", sell_percent)  # Убираем запятые
+            sell_percent = re.sub(r'\D', '', sell_percent) # Убираем спец. символ ︎
             
             # Доход
             revenue = block.select_one(revenue_path).text.strip()
-            revenue = re.sub(r",", "", revenue).split(" ")[0]
+            revenue = re.sub(r",", "", revenue)
+            revenue = re.sub(r'\D', '', revenue)
             
             # Дата обновления
             update = block.select_one(update_path).text.strip()
@@ -707,16 +805,37 @@ def parseData(html):
             update = re.sub(r"seconds", "секунд", update)
             update = re.sub(r"second", "секунду", update)
             update = re.sub(r"ago", "назад", update)
+            update = re.sub(r"now", "сейчас", update)
 
-            this.ROUTES.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update))
+            if this.DEBUG_MODE:
+                this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Result block: {station_name}, {system_name}, {distance}, {resource}, {count}, {price}, {revenue}, {update}, {sell_percent}, {sell_per_item}, {demand}")
+            timed_routes.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand))
         except AttributeError:
             continue  # Пропускаем элементы с неполными данными
+    
+    min_demand_filter = int(config.get(this.PREFNAME_MIN_DEMAND_SEARCH))
 
+    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {type(min_demand_filter)} {min_demand_filter}")
+    if min_demand_filter > 0:
+        this.ROUTES = [route for route in timed_routes if route.demand >= min_demand_filter]
+    else:
+        this.ROUTES = timed_routes
     this.ROUTE_INDEX = 0
     this.ROUTES_COUNT = len(this.ROUTES)
 
 def renderRoute(route):
     try:
+        demandText = "Cтандартный"
+        match route.demand:
+            case 0:
+                demandText = "Нет"
+            case 1:
+                demandText = "Низкий"
+            case 2:
+                demandText = "Стандартный"
+            case 3:
+                demandText = "Высокий"
+
         this.labels.routesCountLabel["text"] = f"Маршруты: {this.ROUTE_INDEX+1}/{this.ROUTES_COUNT}"
         this.labels.place["text"] = f"{route.station_name} [{route.system_name}]"
         this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
@@ -727,8 +846,10 @@ def renderRoute(route):
         else:
             this.labels.resource["url"] = f"https://elite-dangerous.fandom.com/wiki/{quote(route.resource)}"
         this.labels.supply["text"] = f"{int(route.count):,} на складе"
-        this.labels.price["text"] = f"{int(route.price):,} Кред./шт"
+        this.labels.price["text"] = f"{int(route.price):,} Кред./шт."
+        this.labels.demand["text"] = demandText
         this.labels.earn["text"] = f"{int(route.revenue):,} Кред."
+        this.labels.detailEarn["text"] = f"+{int(route.sell_percent):,}% или +{int(route.sell_per_item):,} Кред./шт."
         this.labels.updated["text"] = route.update
         setStateBtn(tk.NORMAL)
     except Exception as e:
