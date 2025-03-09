@@ -347,8 +347,8 @@ SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
 # Для тестов
-STAR_SYSTEM = "Aornum"
-STATION = "Agassiz City"
+# STAR_SYSTEM = "Aornum"
+# STATION = "Agassiz City"
 IS_REQUESTING = False
 HTTPS_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Safari/537.36', 
