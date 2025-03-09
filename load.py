@@ -32,7 +32,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.2.1"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
