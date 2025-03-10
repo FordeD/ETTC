@@ -33,7 +33,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.0"
+PLUGIN_VERSION = "1.3.1"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -387,6 +387,7 @@ class ETTC():
     findBtn: None
     decDistBtn: None
     addDistBtn: None
+    distLabel: None
     prevStationBtn: None
     nextStationBtn: None
     prevItemBtn: None
@@ -543,36 +544,38 @@ def plugin_app(parent: tk.Frame):
     this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
     this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
 
-    this.labels.decDistBtn = tk.Button(frame, text="⬅️", width=1, state=tk.DISABLED, command=this.decDist)
-    this.labels.decDistBtn.grid(row=1, column=0, sticky="nsew")
-    this.labels.findBtn = tk.Button(frame, text=f"Искать ({distance} Св.л)", state=tk.DISABLED, command=this.getBestTrade)
-    this.labels.findBtn.grid(row=1, column=1, columnspan=4, sticky="nsew")
-    this.labels.addDistBtn = tk.Button(frame, text="➡️", width=9, state=tk.DISABLED, command=this.addDist)
+    this.labels.findBtn = tk.Button(frame, text="Искать", state=tk.DISABLED, command=this.getBestTrade)
+    this.labels.findBtn.grid(row=1, column=0, columnspan=2, sticky="nsew")
+    this.labels.decDistBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.decDist)
+    this.labels.decDistBtn.grid(row=1, column=3, sticky="nsew")
+    this.labels.distLabel = tk.Label(frame, text=f"{distance} Св.л", justify=tk.LEFT)
+    this.labels.distLabel.grid(row=1, column=4, columnspan=1, sticky="nsew")
+    this.labels.addDistBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.addDist)
     this.labels.addDistBtn.grid(row=1, column=5, columnspan=1, sticky="nsew")
 
     this.labels.status = tk.Label(frame, text="", justify=tk.CENTER)
     this.labels.status.grid(row=2, column=0, columnspan=6, sticky="nsew")
 
-    this.labels.plaseLabel = tk.Label(frame, text="К станции:", justify=tk.LEFT)
-    this.labels.plaseLabel.grid(row=4, column=0, sticky=tk.E)
-    this.labels.place = hll(frame, text="", justify=tk.LEFT)
-    # https://inara.cz/elite/station/?search=[sysyem]+[station]
-    this.labels.place["url"]= ""
-    this.labels.place.grid(row=4, column=1, columnspan=1, sticky="nsew")
-    this.labels.placeCopyBtn = tk.Button(frame, text="🗎 Copy", state=tk.DISABLED, command=this.copyPlace)
-    this.labels.placeCopyBtn.grid(row=4, column=2, pady=10, sticky="nsew")
-    this.labels.prevStationBtn = tk.Button(frame, text="⬅️", width=9,  state=tk.DISABLED, command=this.getPrevStation)
+    this.labels.distanceLabel = tk.Label(frame, text="Дистанция:", justify=tk.LEFT)
+    this.labels.distanceLabel.grid(row=4, column=0, sticky=tk.E)
+    this.labels.distance = tk.Label(frame, text="", justify=tk.LEFT)
+    this.labels.distance.grid(row=4, column=1, columnspan=1, sticky=tk.W)
+    this.labels.prevStationBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.getPrevStation)
     this.labels.prevStationBtn.grid(row=4, column=3, columnspan=1, pady=10, sticky="nsew")
     this.labels.stationsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
     this.labels.stationsCountLabel.grid(row=4, column=4, columnspan=1, sticky="nsew")
-    this.labels.nextStationBtn = tk.Button(frame, text="➡️", width=9,  state=tk.DISABLED, command=this.getNextStation)
+    this.labels.nextStationBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.getNextStation)
     this.labels.nextStationBtn.grid(row=4, column=5, columnspan=1, pady=10, sticky="nsew")
 
 
-    this.labels.distanceLabel = tk.Label(frame, text="Дистанция:", justify=tk.LEFT)
-    this.labels.distanceLabel.grid(row=5, column=0, sticky=tk.E)
-    this.labels.distance = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.distance.grid(row=5, column=1, columnspan=2, sticky=tk.W)
+    this.labels.plaseLabel = tk.Label(frame, text="К станции:", justify=tk.LEFT)
+    this.labels.plaseLabel.grid(row=5, column=0, sticky=tk.E)
+    this.labels.place = hll(frame, text="", justify=tk.LEFT)
+    # https://inara.cz/elite/station/?search=[sysyem]+[station]
+    this.labels.place["url"]= ""
+    this.labels.place.grid(row=5, column=1, columnspan=5, sticky="nsew")
+    this.labels.placeCopyBtn = tk.Button(frame, text="🗎 Copy", state=tk.DISABLED, command=this.copyPlace)
+    this.labels.placeCopyBtn.grid(row=5, column=4, pady=10, sticky="nsew")
 
     this.labels.resourceLabel = tk.Label(frame, text="Товар:", justify=tk.LEFT)
     this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.E)
@@ -581,11 +584,11 @@ def plugin_app(parent: tk.Frame):
     this.labels.resource.grid(row=6, column=1, columnspan=1, sticky=tk.E)
     this.labels.demand = tk.Label(frame, text="📶", justify=tk.LEFT, fg="#636362")
     this.labels.demand.grid(row=6, column=2, columnspan=1, sticky=tk.W)
-    this.labels.prevItemBtn = tk.Button(frame, text="⬅️", width=9,  state=tk.DISABLED, command=this.getPrevItem)
+    this.labels.prevItemBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.getPrevItem)
     this.labels.prevItemBtn.grid(row=6, column=3, pady=10, sticky=tk.W)
     this.labels.itemsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
-    this.labels.itemsCountLabel.grid(row=6, column=4, sticky=tk.W)
-    this.labels.nextItemBtn = tk.Button(frame, text="➡️", width=9,  state=tk.DISABLED, command=this.getNextItem)
+    this.labels.itemsCountLabel.grid(row=6, column=4, sticky="nsew")
+    this.labels.nextItemBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.getNextItem)
     this.labels.nextItemBtn.grid(row=6, column=5, pady=10, sticky=tk.W)
 
     this.labels.supplyLabel = tk.Label(frame, text="Количество:", justify=tk.LEFT)
@@ -925,12 +928,17 @@ def parseData(html):
 
     if min_demand_filter > 0:
         for station in this.STATIONS:
-            this.ROUTES[station] = [route for route in timed_routes[station] if route.demand >= min_demand_filter]
+            tempRoutes = [route for route in timed_routes[station] if route.demand >= min_demand_filter]
+            if len(tempRoutes) > 0:
+                this.ROUTES[station] = tempRoutes
     else:
         this.ROUTES = timed_routes
 
     for station in this.STATIONS:
-            this.ROUTES_COUNT[station] = len(this.ROUTES[station])
+            if len(this.ROUTES[station]) > 0:
+                this.ROUTES_COUNT[station] = len(this.ROUTES[station])
+    this.STATIONS = list(this.ROUTES_COUNT.keys())
+    this.STATIONS_COUNT = len(this.ROUTES_COUNT)
 
 def renderRoute(route):
     if int(config.get(this.PREFNAME_DEBUG_MODE)):
