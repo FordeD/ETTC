@@ -32,7 +32,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.2.2"
+PLUGIN_VERSION = "1.2.3"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -337,8 +337,6 @@ MIN_DEMAND = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND))
 MIN_DEMAND_SEARCH = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND_SEARCH))
 DEBUG_MODE = tk.StringVar(value=config.get(PREFNAME_DEBUG_MODE))
 
-
-
 cmdr_data = None
 ROUTES = []
 ROUTE_INDEX = 0
@@ -498,8 +496,8 @@ def plugin_app(parent: tk.Frame):
     plugin_app.parent = parent
     frame = tk.Frame(parent)
     # VARIABLES
-    this.labels.plaseLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
-    this.labels.plaseLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
+    this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
+    this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
     this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.LEFT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
     this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.W)
 
