@@ -33,7 +33,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.2"
+PLUGIN_VERSION = "1.3.2.1"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -942,7 +942,7 @@ def renderRoute(route):
     if int(config.get(this.PREFNAME_DEBUG_MODE)):
         this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Render route: {route.station_name}, {route.system_name}, {route.distance}, {route.station_distance}, {route.resource}, {route.count}, {route.price}, {route.revenue}, {route.update}, {route.sell_percent}, {route.sell_per_item}, {route.demand}")
     try:
-        pl1 = quote(route.station_name+" ["+route.system_name+"]")
+        pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
         # Переворачивание значений для фильтра по кораблям-носителям
         cariers = 1 - int(config.get(this.PREFNAME_INCLUDE_CARIERS))
         # Переворачивание значений для фильтра по наземным станциям
