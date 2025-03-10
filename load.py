@@ -33,7 +33,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.1"
+PLUGIN_VERSION = "1.3.2"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -510,8 +510,6 @@ def prefs_changed(cmdr, isbeta):
     if oldStep - newStep != 0:
         this.TIMED_ROUTE_DISTANCE = newDistance
 
-    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
-
 def journal_entry(cmdr, isbeta, system, station, entry, state):
     if system and station and (this.STAR_SYSTEM is not system or this.STATION is not station):
         this.STAR_SYSTEM = system
@@ -575,7 +573,7 @@ def plugin_app(parent: tk.Frame):
     this.labels.place["url"]= ""
     this.labels.place.grid(row=5, column=1, columnspan=5, sticky="nsew")
     this.labels.placeCopyBtn = tk.Button(frame, text="🗎 Copy", state=tk.DISABLED, command=this.copyPlace)
-    this.labels.placeCopyBtn.grid(row=5, column=4, pady=10, sticky="nsew")
+    this.labels.placeCopyBtn.grid(row=5, column=3, columnspan=3, pady=10, sticky="nsew")
 
     this.labels.resourceLabel = tk.Label(frame, text="Товар:", justify=tk.LEFT)
     this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.E)
@@ -730,13 +728,13 @@ def decDist():
         this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
     if this.TIMED_ROUTE_DISTANCE - int(config.get(PREFNAME_ADD_ROUTE_DISTANCE)) > 0:
         this.TIMED_ROUTE_DISTANCE -= int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
-    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
+    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} Св.л"
 
 def addDist():
     if this.TIMED_ROUTE_DISTANCE == 0:
         this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
     this.TIMED_ROUTE_DISTANCE += int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
-    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
+    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} Св.л"
 
 def doRequest():
     try:
@@ -944,7 +942,7 @@ def renderRoute(route):
     if int(config.get(this.PREFNAME_DEBUG_MODE)):
         this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Render route: {route.station_name}, {route.system_name}, {route.distance}, {route.station_distance}, {route.resource}, {route.count}, {route.price}, {route.revenue}, {route.update}, {route.sell_percent}, {route.sell_per_item}, {route.demand}")
     try:
-        pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
+        pl1 = quote(route.station_name+" ["+route.system_name+"]")
         # Переворачивание значений для фильтра по кораблям-носителям
         cariers = 1 - int(config.get(this.PREFNAME_INCLUDE_CARIERS))
         # Переворачивание значений для фильтра по наземным станциям
