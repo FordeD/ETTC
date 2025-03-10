@@ -12,6 +12,7 @@ from ttkHyperlinkLabel import HyperlinkLabel as hll
 from urllib.parse import quote
 from threading import Thread
 from logger import LogContext
+from collections import defaultdict
 import os
 import pyperclip
 sys.path.insert(0, "./soupsieve")  # Добавляем папку в пути поиска модулей
@@ -32,7 +33,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.2.3"
+PLUGIN_VERSION = "1.3.0"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -48,6 +49,7 @@ DEFAULT_MIN_CAPACITY = 720
 DEFAULT_MIN_DEMAND = 0
 DEFAULT_MIN_DEMAND_SEARCH = 0
 DEFAULT_DEBUG_MODE = 0
+DEFAULT_ADD_ROUTE_DISTANCE = 5
 
 ITEMS = dict([
     ("Wine", "Вино"),
@@ -314,6 +316,7 @@ ITEMS = dict([
 
 
 PREFNAME_MAX_ROUTE_DISTANCE = "Макс. расстояние маршрута" #pi1
+PREFNAME_ADD_ROUTE_DISTANCE = "Шаг изменения маршрута"
 PREFNAME_MAX_STATION_DISTANCE = "Макс. расстояние до станции" #pi6
 PREFNAME_MIN_SUPPLY = "Мин. поставки(0,100,500,1000,2500,5000,10000,50000)" # pi2
 PREFNAME_MAX_PRICE_AGE = "Макс. время обновления(кол-во часов)" #pi3
@@ -326,6 +329,7 @@ PREFNAME_MIN_DEMAND_SEARCH = "Мин. качество спроса (0/1/2/3)"
 PREFNAME_DEBUG_MODE = "Включить отладку(0/1)"
 
 MAX_ROUTE_DISTANCE = tk.StringVar(value=config.get(PREFNAME_MAX_ROUTE_DISTANCE))
+ADD_ROUTE_DISTANCE = tk.StringVar(value=config.get(PREFNAME_ADD_ROUTE_DISTANCE))
 MIN_SUPPLY = tk.StringVar(value=config.get(PREFNAME_MIN_SUPPLY))
 MAX_PRICE_AGE = tk.StringVar(value=config.get(PREFNAME_MAX_PRICE_AGE))
 LANDING_PAD = tk.StringVar(value=config.get(PREFNAME_LANDING_PAD))
@@ -338,9 +342,13 @@ MIN_DEMAND_SEARCH = tk.StringVar(value=config.get(PREFNAME_MIN_DEMAND_SEARCH))
 DEBUG_MODE = tk.StringVar(value=config.get(PREFNAME_DEBUG_MODE))
 
 cmdr_data = None
-ROUTES = []
+TIMED_ROUTE_DISTANCE = 0
+ROUTES = defaultdict(list)
+STATIONS = []
 ROUTE_INDEX = 0
-ROUTES_COUNT = 0
+STATION_INDEX = 0
+ROUTES_COUNT = defaultdict(list)
+STATIONS_COUNT = 0
 SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
@@ -359,10 +367,11 @@ SEARCH_IMPORT = False
 SEARCH_URL = "https://inara.cz/elite/market-traderoutes-search/"
 
 class TradeRoute:
-    def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand):
+    def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand, station_distance):
         self.station_name = station_name
         self.system_name = system_name
         self.distance = distance
+        self.station_distance = station_distance
         self.resource = resource
         self.count = count
         self.price = price
@@ -376,9 +385,14 @@ class ETTC():
     searchImportLabel: None
     searchImportBtn: None
     findBtn: None
-    prevBtn: None
-    nextBtn: None
-    routesCountLabel: None
+    decDistBtn: None
+    addDistBtn: None
+    prevStationBtn: None
+    nextStationBtn: None
+    prevItemBtn: None
+    nextItemBtn: None
+    stationsCountLabel: None
+    itemsCountLabel: None
     plaseLabel: None
     place: None
     placeCopyBtn: None
@@ -403,9 +417,13 @@ class ETTC():
 def setStateBtn(state):
     if this.labels.findBtn["state"] != state:
         this.labels.findBtn["state"] = state
-        this.labels.prevBtn["state"] = state
-        this.labels.nextBtn["state"] = state
+        this.labels.prevStationBtn["state"] = state
+        this.labels.nextStationBtn["state"] = state
+        this.labels.prevItemBtn["state"] = state
+        this.labels.nextItemBtn["state"] = state
         this.labels.placeCopyBtn["state"] = state
+        this.labels.decDistBtn["state"] = state
+        this.labels.addDistBtn["state"] = state
 
 def setStatus(status):
     this.labels.status["text"] = status
@@ -423,6 +441,9 @@ def plugin_start():
     if not MAX_ROUTE_DISTANCE.get():
         MAX_ROUTE_DISTANCE.set(str(DEFAULT_MAX_ROUTE_DISTANCE))
         config.set(PREFNAME_MAX_ROUTE_DISTANCE, str(DEFAULT_MAX_ROUTE_DISTANCE))
+    if not ADD_ROUTE_DISTANCE.get():
+        ADD_ROUTE_DISTANCE.set(str(DEFAULT_ADD_ROUTE_DISTANCE))
+        config.set(PREFNAME_ADD_ROUTE_DISTANCE, str(DEFAULT_ADD_ROUTE_DISTANCE))
     if not MIN_SUPPLY.get():
         MIN_SUPPLY.set(str(DEFAULT_MIN_SUPPLY))
         config.set(PREFNAME_MIN_SUPPLY, str(DEFAULT_MIN_SUPPLY))
@@ -461,8 +482,11 @@ def plugin_start3(plugin_dir: str) -> str:
     plugin_start()
 
 def prefs_changed(cmdr, isbeta):
+    oldDistance = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+    oldStep = int(config.get(this.PREFNAME_ADD_ROUTE_DISTANCE))
     this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Update prefs plugin")
     config.set(PREFNAME_MAX_ROUTE_DISTANCE, MAX_ROUTE_DISTANCE.get())
+    config.set(PREFNAME_ADD_ROUTE_DISTANCE, ADD_ROUTE_DISTANCE.get())
     config.set(PREFNAME_MIN_SUPPLY, MIN_SUPPLY.get())
     config.set(PREFNAME_MAX_PRICE_AGE, MAX_PRICE_AGE.get())
     config.set(PREFNAME_LANDING_PAD, LANDING_PAD.get())
@@ -474,8 +498,21 @@ def prefs_changed(cmdr, isbeta):
     config.set(PREFNAME_MIN_DEMAND_SEARCH, MIN_DEMAND_SEARCH.get())
     config.set(PREFNAME_DEBUG_MODE, DEBUG_MODE.get())
 
+    newDistance = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+    newStep = int(config.get(this.PREFNAME_ADD_ROUTE_DISTANCE))
+    if this.TIMED_ROUTE_DISTANCE > 0:
+        this.TIMED_ROUTE_DISTANCE -= oldDistance
+        this.TIMED_ROUTE_DISTANCE += newDistance
+    else:
+       this.TIMED_ROUTE_DISTANCE = newDistance
+
+    if oldStep - newStep != 0:
+        this.TIMED_ROUTE_DISTANCE = newDistance
+
+    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
+
 def journal_entry(cmdr, isbeta, system, station, entry, state):
-    if this.STAR_SYSTEM is not system or this.STATION is not station:
+    if system and station and (this.STAR_SYSTEM is not system or this.STATION is not station):
         this.STAR_SYSTEM = system
         this.STATION = station
 
@@ -486,7 +523,7 @@ def journal_entry(cmdr, isbeta, system, station, entry, state):
             setStatus("Вы прибыли на станцию продажи товара!")
         this.labels.place["text"] = f"Текущая станция"
 
-    if station:
+    if this.STATION:
         if not this.IS_REQUESTING:
             setStateBtn(tk.NORMAL)
     else:
@@ -495,78 +532,83 @@ def journal_entry(cmdr, isbeta, system, station, entry, state):
 def plugin_app(parent: tk.Frame):
     plugin_app.parent = parent
     frame = tk.Frame(parent)
+
+    distance = str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+    if this.TIMED_ROUTE_DISTANCE > 0:
+        distance = str(this.TIMED_ROUTE_DISTANCE)
+
     # VARIABLES
+    this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.RIGHT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
+    this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.E)
     this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
     this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
-    this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.LEFT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
-    this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.W)
 
-    this.labels.findBtn = tk.Button(frame, text="Искать торговые маршруты", state=tk.DISABLED, command=this.getBestTrade)
-    this.labels.findBtn.grid(row=1, column=0, columnspan=4, sticky="nsew")
+    this.labels.decDistBtn = tk.Button(frame, text="⬅️", width=1, state=tk.DISABLED, command=this.decDist)
+    this.labels.decDistBtn.grid(row=1, column=0, sticky="nsew")
+    this.labels.findBtn = tk.Button(frame, text=f"Искать ({distance} Св.л)", state=tk.DISABLED, command=this.getBestTrade)
+    this.labels.findBtn.grid(row=1, column=1, columnspan=4, sticky="nsew")
+    this.labels.addDistBtn = tk.Button(frame, text="➡️", width=9, state=tk.DISABLED, command=this.addDist)
+    this.labels.addDistBtn.grid(row=1, column=5, columnspan=1, sticky="nsew")
 
     this.labels.status = tk.Label(frame, text="", justify=tk.CENTER)
-    this.labels.status.grid(row=2, column=0, columnspan=3, sticky="nsew")
-
-    this.labels.routesCountLabel = tk.Label(frame, text="Маршруты: 0/0", justify=tk.LEFT)
-    this.labels.routesCountLabel.grid(row=3, column=1, columnspan=1, sticky=tk.W)
-
-    this.labels.prevBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.getPrevRoute)
-    this.labels.prevBtn.grid(row=3, column=0, pady=10, sticky=tk.W)
-
-    this.labels.nextBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.getNextRoute)
-    this.labels.nextBtn.grid(row=3, column=3, pady=10, sticky=tk.W)
+    this.labels.status.grid(row=2, column=0, columnspan=6, sticky="nsew")
 
     this.labels.plaseLabel = tk.Label(frame, text="К станции:", justify=tk.LEFT)
-    this.labels.plaseLabel.grid(row=4, column=0, sticky=tk.W)
-    this.labels.place = hll(frame, text="")
+    this.labels.plaseLabel.grid(row=4, column=0, sticky=tk.E)
+    this.labels.place = hll(frame, text="", justify=tk.LEFT)
     # https://inara.cz/elite/station/?search=[sysyem]+[station]
     this.labels.place["url"]= ""
-    this.labels.place.grid(row=4, column=1, columnspan=1, sticky="NSEW")
+    this.labels.place.grid(row=4, column=1, columnspan=1, sticky="nsew")
     this.labels.placeCopyBtn = tk.Button(frame, text="🗎 Copy", state=tk.DISABLED, command=this.copyPlace)
-    this.labels.placeCopyBtn.grid(row=4, column=2, sticky="nsew")
+    this.labels.placeCopyBtn.grid(row=4, column=2, pady=10, sticky="nsew")
+    this.labels.prevStationBtn = tk.Button(frame, text="⬅️", width=9,  state=tk.DISABLED, command=this.getPrevStation)
+    this.labels.prevStationBtn.grid(row=4, column=3, columnspan=1, pady=10, sticky="nsew")
+    this.labels.stationsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
+    this.labels.stationsCountLabel.grid(row=4, column=4, columnspan=1, sticky="nsew")
+    this.labels.nextStationBtn = tk.Button(frame, text="➡️", width=9,  state=tk.DISABLED, command=this.getNextStation)
+    this.labels.nextStationBtn.grid(row=4, column=5, columnspan=1, pady=10, sticky="nsew")
 
 
     this.labels.distanceLabel = tk.Label(frame, text="Дистанция:", justify=tk.LEFT)
-    this.labels.distanceLabel.grid(row=5, column=0, sticky=tk.W)
+    this.labels.distanceLabel.grid(row=5, column=0, sticky=tk.E)
     this.labels.distance = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.distance.grid(row=5, column=1, columnspan=2, sticky=tk.W)
 
-    this.labels.resourceLabel = tk.Label(frame, text="Ресурс:", justify=tk.LEFT)
-    this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.W)
-    this.labels.resource = hll(frame, text="")
-    # https://www.google.com/search?q=elite+dangerous+[resource]
+    this.labels.resourceLabel = tk.Label(frame, text="Товар:", justify=tk.LEFT)
+    this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.E)
+    this.labels.resource = hll(frame, text="", justify=tk.RIGHT)
     this.labels.resource["url"]= ""
-    this.labels.resource.grid(row=6, column=1, columnspan=2, sticky="NSEW")
+    this.labels.resource.grid(row=6, column=1, columnspan=1, sticky=tk.E)
+    this.labels.demand = tk.Label(frame, text="📶", justify=tk.LEFT, fg="#636362")
+    this.labels.demand.grid(row=6, column=2, columnspan=1, sticky=tk.W)
+    this.labels.prevItemBtn = tk.Button(frame, text="⬅️", width=9,  state=tk.DISABLED, command=this.getPrevItem)
+    this.labels.prevItemBtn.grid(row=6, column=3, pady=10, sticky=tk.W)
+    this.labels.itemsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
+    this.labels.itemsCountLabel.grid(row=6, column=4, sticky=tk.W)
+    this.labels.nextItemBtn = tk.Button(frame, text="➡️", width=9,  state=tk.DISABLED, command=this.getNextItem)
+    this.labels.nextItemBtn.grid(row=6, column=5, pady=10, sticky=tk.W)
 
     this.labels.supplyLabel = tk.Label(frame, text="Количество:", justify=tk.LEFT)
-    this.labels.supplyLabel.grid(row=7, column=0, sticky=tk.W)
+    this.labels.supplyLabel.grid(row=7, column=0, sticky=tk.E)
     this.labels.supply = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.supply.grid(row=7, column=1, columnspan=2, sticky=tk.W)
-
-    this.labels.priceLabel = tk.Label(frame, text="Стоимость:", justify=tk.LEFT)
-    this.labels.priceLabel.grid(row=8, column=0, sticky=tk.W)
+    this.labels.supply.grid(row=7, column=1, columnspan=1, sticky=tk.W)
     this.labels.price = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.price.grid(row=8, column=1, columnspan=2, sticky=tk.W)
-
-    this.labels.demandLabel = tk.Label(frame, text="Спрос:", justify=tk.LEFT)
-    this.labels.demandLabel.grid(row=9, column=0, sticky=tk.W)
-    this.labels.demand = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.demand.grid(row=9, column=1, columnspan=2, sticky=tk.W)
+    this.labels.price.grid(row=7, column=2, columnspan=1, sticky=tk.W)
 
     this.labels.earnLabel = tk.Label(frame, text="Прибыль:", justify=tk.LEFT)
-    this.labels.earnLabel.grid(row=10, column=0, sticky=tk.W)
+    this.labels.earnLabel.grid(row=10, column=0, sticky=tk.E)
     this.labels.earn = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.earn.grid(row=10, column=1, columnspan=2, sticky=tk.W)
+    this.labels.earn.grid(row=10, column=1, columnspan=1, sticky=tk.W)
 
     this.labels.detailEarn = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.detailEarn.grid(row=11, column=1, columnspan=2, sticky=tk.W)
 
     this.labels.updatedLabel = tk.Label(frame, text="Обновлено:", justify=tk.LEFT)
-    this.labels.updatedLabel.grid(row=12, column=0, sticky=tk.W)
+    this.labels.updatedLabel.grid(row=12, column=0, sticky=tk.E)
     this.labels.updated = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.updated.grid(row=12, column=1, columnspan=2, sticky=tk.W)
 
-    frame.columnconfigure(12, weight=1)
+    # frame.columnconfigure(12, weight=1)
 
     this.labels.spacer = tk.Frame(frame)
     setStateBtn(tk.NORMAL)
@@ -580,38 +622,42 @@ def plugin_prefs(parent, cmdr, isbeta):
     nb.Label(frame, text=this.PREFNAME_MAX_ROUTE_DISTANCE).grid(padx=10, row=11, sticky=tk.W)
     nb.Entry(frame, textvariable=this.MAX_ROUTE_DISTANCE).grid(padx=10, row=11, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MAX_STATION_DISTANCE).grid(padx=10, row=12, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MAX_STATION_DISTANCE).grid(padx=10, row=12, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_ADD_ROUTE_DISTANCE).grid(padx=10, row=12, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.ADD_ROUTE_DISTANCE).grid(padx=10, row=12, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MIN_CAPACITY).grid(padx=10, row=13, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MIN_CAPACITY).grid(padx=10, row=13, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MAX_STATION_DISTANCE).grid(padx=10, row=13, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MAX_STATION_DISTANCE).grid(padx=10, row=13, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MAX_PRICE_AGE).grid(padx=10, row=14, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MAX_PRICE_AGE).grid(padx=10, row=14, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MIN_CAPACITY).grid(padx=10, row=14, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MIN_CAPACITY).grid(padx=10, row=14, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_LANDING_PAD).grid(padx=10, row=15, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.LANDING_PAD).grid(padx=10, row=15, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MAX_PRICE_AGE).grid(padx=10, row=15, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MAX_PRICE_AGE).grid(padx=10, row=15, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MIN_SUPPLY).grid(padx=10, row=16, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MIN_SUPPLY).grid(padx=10, row=16, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_LANDING_PAD).grid(padx=10, row=16, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.LANDING_PAD).grid(padx=10, row=16, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MIN_DEMAND).grid(padx=10, row=17, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MIN_DEMAND).grid(padx=10, row=17, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MIN_SUPPLY).grid(padx=10, row=17, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MIN_SUPPLY).grid(padx=10, row=17, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_MIN_DEMAND_SEARCH).grid(padx=10, row=18, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.MIN_DEMAND_SEARCH).grid(padx=10, row=18, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MIN_DEMAND).grid(padx=10, row=18, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MIN_DEMAND).grid(padx=10, row=18, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_INCLUDE_SURFACES).grid(padx=10, row=19, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.INCLUDE_SURFACES).grid(padx=10, row=19, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_MIN_DEMAND_SEARCH).grid(padx=10, row=19, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.MIN_DEMAND_SEARCH).grid(padx=10, row=19, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_INCLUDE_CARIERS).grid(padx=10, row=20, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.INCLUDE_CARIERS).grid(padx=10, row=20, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_INCLUDE_SURFACES).grid(padx=10, row=20, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.INCLUDE_SURFACES).grid(padx=10, row=20, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_DEBUG_MODE).grid(padx=10, row=21, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.DEBUG_MODE).grid(padx=10, row=21, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_INCLUDE_CARIERS).grid(padx=10, row=21, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.INCLUDE_CARIERS).grid(padx=10, row=21, column=1, sticky=tk.EW)
+
+    nb.Label(frame, text=this.PREFNAME_DEBUG_MODE).grid(padx=10, row=22, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.DEBUG_MODE).grid(padx=10, row=22, column=1, sticky=tk.EW)
 
     nb.Label(frame, text="Помощь:").grid(padx=10, row=24, columnspan=2, sticky=tk.W)
-    nb.Label(frame, text="Макс. расстояние маршрута - максимальное расстояние в единицах Ly (световых лет) от текущей системы").grid(padx=10, row=25, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Макс. расстояние маршрута - максимальное расстояние в единицах Ly (световых лет) от системы").grid(padx=10, row=25, columnspan=2, sticky=tk.W)
+    nb.Label(frame, text="Шаг изменения маршрута - Шаг увеличения или уменьшения в единицах Ly (световых лет) от системы по кнопкам").grid(padx=10, row=25, columnspan=2, sticky=tk.W)
     nb.Label(frame, text="Макс. расстояние до станции - максимальное расстояние в световых секундах до станции к которой будет проложен маршрут").grid(padx=10, row=26, columnspan=2, sticky=tk.W)
     nb.Label(frame, text="Грузоподъемность - количество места в тоннах для покупки и продажи товаров (учитывается для рассчета прибыли)").grid(padx=10, row=27, columnspan=2, sticky=tk.W)
     nb.Label(frame, text="Макс. время обновления - количество часов с последнего обновления (количество часов)").grid(padx=10, row=28, columnspan=2, sticky=tk.W)
@@ -650,17 +696,44 @@ def formatTradeInfo():
     else:
         this.labels.plaseLabel["text"] = 'К станции:'
 
-def getNextRoute():
-    if this.ROUTE_INDEX < this.ROUTES_COUNT - 1:
-        this.ROUTE_INDEX += 1
-    renderRoute(this.ROUTES[this.ROUTE_INDEX])
+def getNextStation():
+    if this.STATION_INDEX < this.STATIONS_COUNT - 1:
+        this.STATION_INDEX += 1
+        this.ROUTE_INDEX = 0
+    station = this.STATIONS[this.STATION_INDEX]
+    renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
-def getPrevRoute():
+def getPrevStation():
+    if this.STATION_INDEX > 0:
+        this.STATION_INDEX -= 1
+        this.ROUTE_INDEX = 0
+    station = this.STATIONS[this.STATION_INDEX]
+    renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
+
+def getNextItem():
+    if this.ROUTE_INDEX < this.ROUTES_COUNT[this.STATIONS[this.STATION_INDEX]] - 1:
+        this.ROUTE_INDEX += 1
+    station = this.STATIONS[this.STATION_INDEX]
+    renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
+
+def getPrevItem():
     if this.ROUTE_INDEX > 0:
         this.ROUTE_INDEX -= 1
-    renderRoute(this.ROUTES[this.ROUTE_INDEX])
+    station = this.STATIONS[this.STATION_INDEX]
+    renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
+def decDist():
+    if this.TIMED_ROUTE_DISTANCE == 0:
+        this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+    if this.TIMED_ROUTE_DISTANCE - int(config.get(PREFNAME_ADD_ROUTE_DISTANCE)) > 0:
+        this.TIMED_ROUTE_DISTANCE -= int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
+    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
 
+def addDist():
+    if this.TIMED_ROUTE_DISTANCE == 0:
+        this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+    this.TIMED_ROUTE_DISTANCE += int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
+    this.labels.findBtn["text"] = f"Искать ({this.TIMED_ROUTE_DISTANCE} Св.л)"
 
 def doRequest():
     try:
@@ -676,8 +749,10 @@ def doRequest():
                 surface = 2
             case 2:
                 surface = 0
-
-        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        distance = str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
+        if this.TIMED_ROUTE_DISTANCE > 0:
+            distance = str(this.TIMED_ROUTE_DISTANCE)
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
         this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search routes from: {url}")
         response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
@@ -688,9 +763,19 @@ def doRequest():
 
         if response.text:
             parseData(response.text)
-            if this.ROUTES_COUNT > 0:
-                renderRoute(this.ROUTES[0])
-                setStatus(f"Пути найдены!")
+            if this.STATIONS_COUNT > 0:
+                if this.ROUTES_COUNT[this.STATIONS[this.STATION_INDEX]] > 0:
+                    renderRoute(this.ROUTES[this.STATIONS[this.STATION_INDEX]][0])
+                    if this.TIMED_ROUTE_DISTANCE > 0:
+                        setStatus(f"Пути найдены на дистанции {this.TIMED_ROUTE_DISTANCE} Св.л!")
+                    else:
+                        setStatus(f"Пути найдены!")
+                else:
+                    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
+                    if this.SEARCH_IMPORT == 0:
+                        setStatus(f"От станции нет путей!")
+                    else:
+                        setStatus(f"На станцию нет путей!")
             else:
                 this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                 if this.SEARCH_IMPORT == 0:
@@ -716,11 +801,14 @@ def doRequest():
 def parseData(html):
     soup = BeautifulSoup(html, 'html.parser')
     this.ROUTES.clear()
-    timed_routes = []
+    this.STATIONS.clear()
+    this.ROUTES_COUNT.clear()
+    timed_routes = defaultdict(list)
     route_type = 1
     station_elem_path = "div:nth-of-type(2) > a > span.standardcase.standardcolor.nowrap"
     system_elem_path = "div:nth-of-type(2) > a > span.uppercase.nowrap"
     distance_path = "div:nth-of-type(10) > div:nth-of-type(1) > div:nth-of-type(1) > div.itempairvalue.itempairvalueright > span.bigger"
+    station_distance_path = "div:nth-of-type(7) > .itempaircontainer > .itempairvalue > .minor"
     recource_path = ".traderouteboxtoright > div:nth-of-type(1) > .itempairvalue > a > span.avoidwrap"
     count_path = ".traderouteboxtoright > div:nth-of-type(3) > .itempairvalue"
     price_path = ".traderouteboxtoright > div:nth-of-type(2) > .itempairvalue"
@@ -736,6 +824,7 @@ def parseData(html):
         count_path = ".traderouteboxtoleft > div:nth-of-type(3) > .itempairvalue"
         price_path = ".traderouteboxtoleft > div:nth-of-type(2) > .itempairvalue"
         demand_path = ".traderouteboxfromright > div:nth-of-type(3) > .itempairvalue"
+        station_distance_path = "div:nth-of-type(4) > .itempaircontainer > .itempairvalue > .minor"
         
     
     for block in soup.find_all("div", class_="mainblock traderoutebox taggeditem", attrs={"data-tags": f'["{route_type}"]'}):
@@ -752,6 +841,13 @@ def parseData(html):
             
             # Дистанция
             distance = block.select_one(distance_path).text.strip()
+            distance = re.sub(r"Ly", "Св.л", distance)
+
+            # Дистанция станции
+            station_distance = block.select_one(station_distance_path).text.strip()
+            station_distance = re.sub(r",", "", station_distance)  # Убираем запятые
+            station_distance = re.sub(r"-", "0", station_distance)  # Убираем неизвестное
+            station_distance = re.sub(r'\D', '', station_distance) # Убираем спец. символ ︎
             
             # Ресурс
             resource = block.select_one(recource_path).text.strip()
@@ -809,47 +905,84 @@ def parseData(html):
             update = re.sub(r"now", "сейчас", update)
 
             if int(config.get(this.PREFNAME_DEBUG_MODE)):
-                this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Result block: {station_name}, {system_name}, {distance}, {resource}, {count}, {price}, {revenue}, {update}, {sell_percent}, {sell_per_item}, {demand}")
-            timed_routes.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand))
-        except AttributeError:
-            continue  # Пропускаем элементы с неполными данными
+                this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Result block: {station_name}, {system_name}, {distance}, {station_distance}, {resource}, {count}, {price}, {revenue}, {update}, {sell_percent}, {sell_per_item}, {demand}")
+            
+            timed_route = TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand, station_distance)
+            timed_routes[station_name].append(timed_route)
+            # timed_routes.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand, station_distance))
+        except Exception as e:
+            this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {e}")
+            this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {traceback.format_exc()}")
+        # except AttributeError:
+        #     continue  # Пропускаем элементы с неполными данными
     
     min_demand_filter = int(config.get(this.PREFNAME_MIN_DEMAND_SEARCH))
 
+    this.STATIONS = list(timed_routes.keys())
+    this.ROUTE_INDEX = 0
+    this.STATION_INDEX = 0
+    this.STATIONS_COUNT = len(this.STATIONS)
+
     if min_demand_filter > 0:
-        this.ROUTES = [route for route in timed_routes if route.demand >= min_demand_filter]
+        for station in this.STATIONS:
+            this.ROUTES[station] = [route for route in timed_routes[station] if route.demand >= min_demand_filter]
     else:
         this.ROUTES = timed_routes
-    this.ROUTE_INDEX = 0
-    this.ROUTES_COUNT = len(this.ROUTES)
+
+    for station in this.STATIONS:
+            this.ROUTES_COUNT[station] = len(this.ROUTES[station])
 
 def renderRoute(route):
+    if int(config.get(this.PREFNAME_DEBUG_MODE)):
+        this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Render route: {route.station_name}, {route.system_name}, {route.distance}, {route.station_distance}, {route.resource}, {route.count}, {route.price}, {route.revenue}, {route.update}, {route.sell_percent}, {route.sell_per_item}, {route.demand}")
     try:
-        demandText = "Cтандартный"
+        pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
+        # Переворачивание значений для фильтра по кораблям-носителям
+        cariers = 1 - int(config.get(this.PREFNAME_INCLUDE_CARIERS))
+        # Переворачивание значений для фильтра по наземным станциям
+        surface = int(config.get(this.PREFNAME_INCLUDE_SURFACES))
+        match surface:
+            case 0:
+                surface = 1
+            case 1:
+                surface = 2
+            case 2:
+                surface = 0
+
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+
+        demandText = "📶"
+        this.labels.demand["fg"] = "#ffcc00"
         match route.demand:
             case 0:
-                demandText = "Нет"
+                this.labels.demand["fg"] = "#636362"
             case 1:
-                demandText = "Низкий"
+                this.labels.demand["fg"] = "#ff0000"
             case 2:
-                demandText = "Стандартный"
+                this.labels.demand["fg"] = "#ffcc00"
             case 3:
-                demandText = "Высокий"
+                this.labels.demand["fg"] = "#4dff00"
 
-        this.labels.routesCountLabel["text"] = f"Маршруты: {this.ROUTE_INDEX+1}/{this.ROUTES_COUNT}"
+        this.labels.stationsCountLabel["text"] = f"{this.STATION_INDEX+1}/{this.STATIONS_COUNT}"
+        this.labels.itemsCountLabel["text"] = f"{this.ROUTE_INDEX+1}/{this.ROUTES_COUNT[this.STATIONS[this.STATION_INDEX]]}"
         this.labels.place["text"] = f"{route.station_name} [{route.system_name}]"
-        this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
-        this.labels.distance["text"] = route.distance
+        # this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
+        this.labels.place["url"] = url
+        this.labels.distance["text"] = f"{route.distance} >> {route.station_distance} Св.c"
+
         this.labels.resource["text"] = ITEMS.get(route.resource, route.resource)
+        this.labels.demand["text"] = demandText
         if route.resource in ITEMS:
             this.labels.resource["url"] = f"https://elite-dangerous.fandom.com/ru/wiki/{quote(ITEMS.get(route.resource, route.resource))}"
         else:
             this.labels.resource["url"] = f"https://elite-dangerous.fandom.com/wiki/{quote(route.resource)}"
-        this.labels.supply["text"] = f"{int(route.count):,} на складе"
-        this.labels.price["text"] = f"{int(route.price):,} Кред./шт."
-        this.labels.demand["text"] = demandText
-        this.labels.earn["text"] = f"{int(route.revenue):,} Кред."
-        this.labels.detailEarn["text"] = f"+{int(route.sell_percent):,}% или +{int(route.sell_per_item):,} Кред./шт."
+
+        this.labels.supply["text"] = f"{int(route.count):,} Ед."
+        this.labels.price["text"] = f"{int(route.price):,} Кр."
+
+        this.labels.earn["text"] = f"{int(route.revenue):,} Кр."
+        this.labels.detailEarn["text"] = f"+{int(route.sell_percent):,}% или +{int(route.sell_per_item):,} Кр./Ед."
+
         this.labels.updated["text"] = route.update
         setStateBtn(tk.NORMAL)
     except Exception as e:
