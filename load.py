@@ -32,7 +32,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.2.1"
+PLUGIN_VERSION = "1.2.2"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -375,6 +375,7 @@ class TradeRoute:
         self.demand = demand
 
 class ETTC():
+    searchImportLabel: None
     searchImportBtn: None
     findBtn: None
     prevBtn: None
@@ -497,8 +498,10 @@ def plugin_app(parent: tk.Frame):
     plugin_app.parent = parent
     frame = tk.Frame(parent)
     # VARIABLES
-    this.labels.searchImportBtn = tk.Button(frame, text="Находить маршруты импорта", state=tk.NORMAL, command=this.formatTradeInfo)
-    this.labels.searchImportBtn.grid(row=0, column=0, columnspan=4, sticky="nsew")
+    this.labels.plaseLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
+    this.labels.plaseLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
+    this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.LEFT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
+    this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.W)
 
     this.labels.findBtn = tk.Button(frame, text="Искать торговые маршруты", state=tk.DISABLED, command=this.getBestTrade)
     this.labels.findBtn.grid(row=1, column=0, columnspan=4, sticky="nsew")
@@ -606,8 +609,8 @@ def plugin_prefs(parent, cmdr, isbeta):
     nb.Label(frame, text=this.PREFNAME_INCLUDE_CARIERS).grid(padx=10, row=20, sticky=tk.W)
     nb.Entry(frame, textvariable=this.INCLUDE_CARIERS).grid(padx=10, row=20, column=1, sticky=tk.EW)
 
-    nb.Label(frame, text=this.PREFNAME_DEBUG_MODE).grid(padx=10, row=20, sticky=tk.W)
-    nb.Entry(frame, textvariable=this.DEBUG_MODE).grid(padx=10, row=20, column=1, sticky=tk.EW)
+    nb.Label(frame, text=this.PREFNAME_DEBUG_MODE).grid(padx=10, row=21, sticky=tk.W)
+    nb.Entry(frame, textvariable=this.DEBUG_MODE).grid(padx=10, row=21, column=1, sticky=tk.EW)
 
     nb.Label(frame, text="Помощь:").grid(padx=10, row=24, columnspan=2, sticky=tk.W)
     nb.Label(frame, text="Макс. расстояние маршрута - максимальное расстояние в единицах Ly (световых лет) от текущей системы").grid(padx=10, row=25, columnspan=2, sticky=tk.W)
@@ -645,10 +648,8 @@ def getBestTrade():
 def formatTradeInfo():
     this.SEARCH_IMPORT = not this.SEARCH_IMPORT
     if this.SEARCH_IMPORT == True:
-        this.labels.searchImportBtn["text"] = 'Находить маршруты экспорта'
         this.labels.plaseLabel["text"] = 'От станции:'
     else:
-        this.labels.searchImportBtn["text"] = 'Находить маршруты импорта'
         this.labels.plaseLabel["text"] = 'К станции:'
 
 def getNextRoute():
@@ -693,10 +694,12 @@ def doRequest():
                 renderRoute(this.ROUTES[0])
                 setStatus(f"Пути найдены!")
             else:
+                this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                 if this.SEARCH_IMPORT == 0:
                     setStatus(f"От станции нет путей!")
                 else:
                     setStatus(f"На станцию нет путей!")
+            setStateBtn(tk.NORMAL)
         else:
             this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Catch request error")
             setStatus("Ошибка: невозможно найти маршруты.")
@@ -807,7 +810,7 @@ def parseData(html):
             update = re.sub(r"ago", "назад", update)
             update = re.sub(r"now", "сейчас", update)
 
-            if this.DEBUG_MODE:
+            if int(config.get(this.PREFNAME_DEBUG_MODE)):
                 this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Result block: {station_name}, {system_name}, {distance}, {resource}, {count}, {price}, {revenue}, {update}, {sell_percent}, {sell_per_item}, {demand}")
             timed_routes.append(TradeRoute(station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand))
         except AttributeError:
@@ -815,7 +818,6 @@ def parseData(html):
     
     min_demand_filter = int(config.get(this.PREFNAME_MIN_DEMAND_SEARCH))
 
-    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {type(min_demand_filter)} {min_demand_filter}")
     if min_demand_filter > 0:
         this.ROUTES = [route for route in timed_routes if route.demand >= min_demand_filter]
     else:
