@@ -15,6 +15,8 @@ from logger import LogContext
 from collections import defaultdict
 import os
 import pyperclip
+from Tooltip import ToolTip
+
 sys.path.insert(0, "./soupsieve")  # Добавляем папку в пути поиска модулей
 sys.path.insert(0, "./pyperclip")  # Добавляем папку в пути поиска модулей
 
@@ -33,7 +35,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.2.2"
+PLUGIN_VERSION = "1.3.3"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -364,6 +366,11 @@ HTTPS_HEADERS = {
     'Accept-Encoding': 'gzip, deflate, br'
 }
 SEARCH_IMPORT = False
+SEARCH_STATION = ""
+SEARCH_SYSTEM = ""
+LAST_STATION = ""
+LAST_SYSTEM = ""
+LOCK_ROUTE = False
 SEARCH_URL = "https://inara.cz/elite/market-traderoutes-search/"
 
 class TradeRoute:
@@ -384,7 +391,9 @@ class TradeRoute:
 class ETTC():
     searchImportLabel: None
     searchImportBtn: None
-    findBtn: None
+    lockRouteBtn: None
+    findImportBtn: None
+    findExportBtn: None
     decDistBtn: None
     addDistBtn: None
     distLabel: None
@@ -394,8 +403,9 @@ class ETTC():
     nextItemBtn: None
     stationsCountLabel: None
     itemsCountLabel: None
-    plaseLabel: None
+    placeLabel: None
     place: None
+    stationCopyBtn: None
     placeCopyBtn: None
     distanceLabel: None
     distance: None
@@ -410,18 +420,23 @@ class ETTC():
     earnLabel: None
     earn: None
     detailEarn: None
+    margin: None
+    marginLabel: None
     updatedLabel: None
     updated: None
     status: None
     spacer: None
 
 def setStateBtn(state):
-    if this.labels.findBtn["state"] != state:
-        this.labels.findBtn["state"] = state
+    if this.labels.findImportBtn["state"] != state:
+        this.labels.findImportBtn["state"] = state
+        this.labels.findExportBtn["state"] = state
+        this.labels.lockRouteBtn["state"] = state
         this.labels.prevStationBtn["state"] = state
         this.labels.nextStationBtn["state"] = state
         this.labels.prevItemBtn["state"] = state
         this.labels.nextItemBtn["state"] = state
+        this.labels.stationCopyBtn["state"] = state
         this.labels.placeCopyBtn["state"] = state
         this.labels.decDistBtn["state"] = state
         this.labels.addDistBtn["state"] = state
@@ -529,6 +544,48 @@ def journal_entry(cmdr, isbeta, system, station, entry, state):
         setStateBtn(tk.DISABLED)
 
 def plugin_app(parent: tk.Frame):
+    def create_tooltip(widget, text):
+        """Создает всплывающее окно ToolTip поверх всех окон."""
+        tip_window = None
+        timer_id = None
+        delay = 500
+
+        def show_tip(event=None):
+            nonlocal tip_window
+            if tip_window:
+                return
+            
+            x, y, _, _ = widget.bbox("insert")  # Получаем координаты элемента
+            x = x + widget.winfo_rootx() + 20
+            y = y + widget.winfo_rooty() + 20
+
+            tip_window = tw = tk.Toplevel(widget)
+            tw.wm_overrideredirect(True)  # Убираем рамку
+            tw.wm_attributes("-topmost", True)  # Делаем поверх всех окон
+
+            label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID, borderwidth=1, font=("tahoma", "8", "normal"))
+            label.pack(ipadx=5, ipady=2)
+
+            tw.wm_geometry(f"+{x}+{y}")  # Размещаем окно у курсора
+
+            # Закрытие ToolTip через 2 сек.
+            tw.after(2000, lambda: hide_tip())
+        def schedule_tip(event=None):
+            nonlocal timer_id
+            timer_id = widget.after(delay, show_tip)
+
+        def hide_tip(event=None):
+            nonlocal tip_window, timer_id
+            if tip_window:
+                tip_window.destroy()
+                tip_window = None
+            if timer_id:
+                widget.after_cancel(timer_id)
+                timer_id = None
+
+        widget.bind("<Enter>", schedule_tip)
+        widget.bind("<Leave>", hide_tip)
+
     plugin_app.parent = parent
     frame = tk.Frame(parent)
 
@@ -537,72 +594,93 @@ def plugin_app(parent: tk.Frame):
         distance = str(this.TIMED_ROUTE_DISTANCE)
 
     # VARIABLES
-    this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.RIGHT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
-    this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.E)
-    this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
-    this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
+    #this.labels.searchImportBtn = tk.Checkbutton(frame, text="", variable=SEARCH_IMPORT, justify=tk.RIGHT, state=tk.NORMAL, onvalue=True, offvalue=False, command=this.formatTradeInfo)
+    #this.labels.searchImportBtn.grid(row=0, column=0, columnspan=1, sticky=tk.E)
+    #this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
+    #this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
 
-    this.labels.findBtn = tk.Button(frame, text="Искать", state=tk.DISABLED, command=this.getBestTrade)
-    this.labels.findBtn.grid(row=1, column=0, columnspan=2, sticky="nsew")
+    this.labels.findImportBtn = tk.Button(frame, text="Импорт", state=tk.DISABLED, command=this.getBestImport)
+    this.labels.findImportBtn.grid(row=1, column=0, pady=2, columnspan=1, sticky="nsew")
+    this.labels.findExportBtn = tk.Button(frame, text="Экспорт", state=tk.DISABLED, command=this.getBestExport)
+    this.labels.findExportBtn.grid(row=1, column=1, pady=2, columnspan=1, sticky="nsew")
+    this.labels.lockRouteBtn = tk.Checkbutton(frame, text="", variable=LOCK_ROUTE, justify=tk.RIGHT, state=tk.DISABLED, onvalue=True, offvalue=False, command=this.setLockRoute)
+    this.labels.lockRouteBtn.grid(row=1, column=2, columnspan=1, sticky=tk.E)
+    create_tooltip(this.labels.lockRouteBtn, "Зафиксировать поиск маршрута между текущей и выбранной станциями")
+
     this.labels.decDistBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.decDist)
-    this.labels.decDistBtn.grid(row=1, column=3, sticky="nsew")
-    this.labels.distLabel = tk.Label(frame, text=f"{distance} Св.л", justify=tk.LEFT)
-    this.labels.distLabel.grid(row=1, column=4, columnspan=1, sticky="nsew")
+    this.labels.decDistBtn.grid(row=1, column=3, pady=2, sticky="nsew")
+    this.labels.distLabel = tk.Label(frame, text=f"{distance} св.л", justify=tk.LEFT)
+    this.labels.distLabel.grid(row=1, column=4, columnspan=1, sticky=tk.W)
+    create_tooltip(this.labels.distLabel, "Дистанция поиска маршрутов")
     this.labels.addDistBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.addDist)
-    this.labels.addDistBtn.grid(row=1, column=5, columnspan=1, sticky="nsew")
+    this.labels.addDistBtn.grid(row=1, column=5, pady=2, sticky="nsew")
 
     this.labels.status = tk.Label(frame, text="", justify=tk.CENTER)
-    this.labels.status.grid(row=2, column=0, columnspan=6, sticky="nsew")
+    this.labels.status.grid(row=2, column=0, columnspan=4, sticky="nsew")
+    this.labels.stationCopyBtn = tk.Button(frame, text="🗎", state=tk.DISABLED, command=this.copyStationName)
+    this.labels.stationCopyBtn.grid(row=2, column=5, columnspan=1, pady=2, sticky="nsew")
+    create_tooltip(this.labels.stationCopyBtn, "Скопировать название станции")
 
     this.labels.distanceLabel = tk.Label(frame, text="Дистанция:", justify=tk.LEFT)
     this.labels.distanceLabel.grid(row=4, column=0, sticky=tk.E)
     this.labels.distance = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.distance.grid(row=4, column=1, columnspan=1, sticky=tk.W)
+    this.labels.distance.grid(row=4, column=1, columnspan=2, sticky=tk.W)
     this.labels.prevStationBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.getPrevStation)
-    this.labels.prevStationBtn.grid(row=4, column=3, columnspan=1, pady=10, sticky="nsew")
+    this.labels.prevStationBtn.grid(row=4, column=3, pady=2, sticky="nsew")
     this.labels.stationsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
-    this.labels.stationsCountLabel.grid(row=4, column=4, columnspan=1, sticky="nsew")
+    this.labels.stationsCountLabel.grid(row=4, column=4, sticky="nsew")
+    create_tooltip(this.labels.stationsCountLabel, "Количество найденных станций")
     this.labels.nextStationBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.getNextStation)
-    this.labels.nextStationBtn.grid(row=4, column=5, columnspan=1, pady=10, sticky="nsew")
+    this.labels.nextStationBtn.grid(row=4, column=5, pady=2, sticky="nsew")
 
 
-    this.labels.plaseLabel = tk.Label(frame, text="К станции:", justify=tk.LEFT)
-    this.labels.plaseLabel.grid(row=5, column=0, sticky=tk.E)
+    this.labels.placeLabel = tk.Label(frame, text="К станции:", justify=tk.LEFT)
+    this.labels.placeLabel.grid(row=5, column=0, sticky=tk.E)
     this.labels.place = hll(frame, text="", justify=tk.LEFT)
     # https://inara.cz/elite/station/?search=[sysyem]+[station]
     this.labels.place["url"]= ""
     this.labels.place.grid(row=5, column=1, columnspan=5, sticky="nsew")
-    this.labels.placeCopyBtn = tk.Button(frame, text="🗎 Copy", state=tk.DISABLED, command=this.copyPlace)
-    this.labels.placeCopyBtn.grid(row=5, column=3, columnspan=3, pady=10, sticky="nsew")
+    this.labels.placeCopyBtn = tk.Button(frame, text="🗎", state=tk.DISABLED, command=this.copyPlace)
+    this.labels.placeCopyBtn.grid(row=5, column=5, columnspan=1, pady=2, sticky="nsew")
+    create_tooltip(this.labels.placeCopyBtn, "Скопировать название станции")
 
-    this.labels.resourceLabel = tk.Label(frame, text="Товар:", justify=tk.LEFT)
-    this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.E)
-    this.labels.resource = hll(frame, text="", justify=tk.RIGHT)
+
+    #this.labels.resourceLabel = tk.Label(frame, text="Товар:", justify=tk.LEFT)
+    #this.labels.resourceLabel.grid(row=6, column=0, sticky=tk.E)
+    this.labels.resource = hll(frame, text="", justify=tk.CENTER)
     this.labels.resource["url"]= ""
-    this.labels.resource.grid(row=6, column=1, columnspan=1, sticky=tk.E)
+    this.labels.resource.grid(row=6, column=0, columnspan=2, sticky=tk.E)
     this.labels.demand = tk.Label(frame, text="📶", justify=tk.LEFT, fg="#636362")
     this.labels.demand.grid(row=6, column=2, columnspan=1, sticky=tk.W)
+    create_tooltip(this.labels.demand, "Спрос на товар")
     this.labels.prevItemBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.getPrevItem)
-    this.labels.prevItemBtn.grid(row=6, column=3, pady=10, sticky=tk.W)
+    this.labels.prevItemBtn.grid(row=6, column=3, pady=2, sticky="nsew")
     this.labels.itemsCountLabel = tk.Label(frame, text="0/0", justify=tk.LEFT)
     this.labels.itemsCountLabel.grid(row=6, column=4, sticky="nsew")
+    create_tooltip(this.labels.itemsCountLabel, "Количество найденных товаров")
     this.labels.nextItemBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.getNextItem)
-    this.labels.nextItemBtn.grid(row=6, column=5, pady=10, sticky=tk.W)
+    this.labels.nextItemBtn.grid(row=6, column=5, pady=2, sticky="nsew")
 
     this.labels.supplyLabel = tk.Label(frame, text="Количество:", justify=tk.LEFT)
     this.labels.supplyLabel.grid(row=7, column=0, sticky=tk.E)
     this.labels.supply = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.supply.grid(row=7, column=1, columnspan=1, sticky=tk.W)
+    this.labels.priceLabel = tk.Label(frame, text="Цена:", justify=tk.RIGHT)
+    this.labels.priceLabel.grid(row=7, column=2, columnspan=2, sticky=tk.W)
     this.labels.price = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.price.grid(row=7, column=2, columnspan=1, sticky=tk.W)
+    this.labels.price.grid(row=7, column=4, columnspan=2, sticky=tk.W)
 
     this.labels.earnLabel = tk.Label(frame, text="Прибыль:", justify=tk.LEFT)
     this.labels.earnLabel.grid(row=10, column=0, sticky=tk.E)
     this.labels.earn = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.earn.grid(row=10, column=1, columnspan=1, sticky=tk.W)
 
+    this.labels.marginLabel = tk.Label(frame, text="Маржа:", justify=tk.LEFT)
+    this.labels.marginLabel.grid(row=10, column=2, columnspan=2, sticky=tk.W)
+    this.labels.margin = tk.Label(frame, text="", justify=tk.LEFT)
+    this.labels.margin.grid(row=10, column=4, columnspan=3, sticky=tk.W)
     this.labels.detailEarn = tk.Label(frame, text="", justify=tk.LEFT)
-    this.labels.detailEarn.grid(row=11, column=1, columnspan=2, sticky=tk.W)
+    this.labels.detailEarn.grid(row=11, column=1, columnspan=4, sticky=tk.W)
 
     this.labels.updatedLabel = tk.Label(frame, text="Обновлено:", justify=tk.LEFT)
     this.labels.updatedLabel.grid(row=12, column=0, sticky=tk.E)
@@ -676,32 +754,61 @@ def cmdr_data(data, is_beta):
     this.STAR_SYSTEM = data['lastSystem']['name']
     this.STATION = data['lastStarport']['name']
 
-def copyPlace():
-    if len(this.ROUTES) > 0 and this.ROUTES[this.ROUTE_INDEX]:
-        pyperclip.copy(f"{this.ROUTES[this.ROUTE_INDEX].station_name}")
+def copyStationName():
+    pyperclip.copy(f"{this.STATION}")
 
-def getBestTrade():
+def copyPlace():
+    station = this.STATIONS[this.STATION_INDEX]
+    if len(this.ROUTES) > 0 and this.ROUTES[station][this.ROUTE_INDEX]:
+        pyperclip.copy(f"{this.ROUTES[station][this.ROUTE_INDEX].station_name}")
+
+def getBestImport():
+    clearRoute()
     if this.STAR_SYSTEM and (this.STATION is not None):
         setStateBtn(tk.DISABLED)
         this.IS_REQUESTING = True
-        setStatus("Идет поиск пути...")
+        this.SEARCH_IMPORT = True
+        this.labels.placeLabel["text"] = 'От станции:'
+        setStatus("Идет поиск маршрута...")
         this.SEARCH_THREAD = Thread(target=doRequest)
         this.SEARCH_THREAD.start()
     else:
         setStatus("Прилетите на станцию!")
 
-def formatTradeInfo():
-    this.SEARCH_IMPORT = not this.SEARCH_IMPORT
-    if this.SEARCH_IMPORT == True:
-        this.labels.plaseLabel["text"] = 'От станции:'
+def getBestExport():
+    clearRoute()
+    if this.STAR_SYSTEM and (this.STATION is not None):
+        setStateBtn(tk.DISABLED)
+        this.IS_REQUESTING = True
+        this.SEARCH_IMPORT = False
+        this.labels.placeLabel["text"] = 'К станции:'
+        setStatus("Идет поиск маршрута...")
+        this.SEARCH_THREAD = Thread(target=doRequest)
+        this.SEARCH_THREAD.start()
     else:
-        this.labels.plaseLabel["text"] = 'К станции:'
+        setStatus("Прилетите на станцию!")
+
+#def formatTradeInfo():
+#    this.SEARCH_IMPORT = not this.SEARCH_IMPORT
+#    if this.SEARCH_IMPORT == True:
+#        this.labels.placeLabel["text"] = 'От станции:'
+#    else:
+#        this.labels.placeLabel["text"] = 'К станции:'
+
+def setLockRoute():
+    this.LOCK_ROUTE = not this.LOCK_ROUTE
+
 
 def getNextStation():
     if this.STATION_INDEX < this.STATIONS_COUNT - 1:
         this.STATION_INDEX += 1
         this.ROUTE_INDEX = 0
     station = this.STATIONS[this.STATION_INDEX]
+    if not this.LOCK_ROUTE:
+        this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
+        this.SEARCH_SYSTEM = this.ROUTES[station][this.ROUTE_INDEX].system_name
+        this.LAST_STATION = STATION
+        this.LAST_SYSTEM = STAR_SYSTEM
     renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
 def getPrevStation():
@@ -709,6 +816,11 @@ def getPrevStation():
         this.STATION_INDEX -= 1
         this.ROUTE_INDEX = 0
     station = this.STATIONS[this.STATION_INDEX]
+    if not this.LOCK_ROUTE:
+        this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
+        this.SEARCH_SYSTEM = this.ROUTES[station][this.ROUTE_INDEX].system_name
+        this.LAST_STATION = STATION
+        this.LAST_SYSTEM = STAR_SYSTEM
     renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
 def getNextItem():
@@ -728,13 +840,13 @@ def decDist():
         this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
     if this.TIMED_ROUTE_DISTANCE - int(config.get(PREFNAME_ADD_ROUTE_DISTANCE)) > 0:
         this.TIMED_ROUTE_DISTANCE -= int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
-    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} Св.л"
+    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} св.л"
 
 def addDist():
     if this.TIMED_ROUTE_DISTANCE == 0:
         this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
     this.TIMED_ROUTE_DISTANCE += int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
-    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} Св.л"
+    this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} св.л"
 
 def doRequest():
     try:
@@ -754,6 +866,9 @@ def doRequest():
         if this.TIMED_ROUTE_DISTANCE > 0:
             distance = str(this.TIMED_ROUTE_DISTANCE)
         url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        if this.LOCK_ROUTE and len(this.SEARCH_STATION) > 0 and len(this.SEARCH_SYSTEM) > 0:
+            pl1 = quote(this.LAST_STATION+" ["+this.LAST_SYSTEM+"]")
+            url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2="+str(quote(this.SEARCH_STATION + ' [' + this.SEARCH_SYSTEM + ']'))+"&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
         this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search routes from: {url}")
         response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
@@ -767,22 +882,28 @@ def doRequest():
             if this.STATIONS_COUNT > 0:
                 if this.ROUTES_COUNT[this.STATIONS[this.STATION_INDEX]] > 0:
                     renderRoute(this.ROUTES[this.STATIONS[this.STATION_INDEX]][0])
-                    if this.TIMED_ROUTE_DISTANCE > 0:
-                        setStatus(f"Пути найдены на дистанции {this.TIMED_ROUTE_DISTANCE} Св.л!")
-                    else:
-                        setStatus(f"Пути найдены!")
+                    #if this.TIMED_ROUTE_DISTANCE > 0:
+                    #   setStatus(f"Маршруты {this.STATION} [{this.STAR_SYSTEM}] до {this.TIMED_ROUTE_DISTANCE} св.л!")
+                    #else:
+                    setStatus(f"Маршруты {this.STATION} [{this.STAR_SYSTEM}]")
+                    if not this.LOCK_ROUTE:
+                        station = this.STATIONS[this.STATION_INDEX]
+                        this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
+                        this.SEARCH_SYSTEM = this.ROUTES[station][this.ROUTE_INDEX].system_name
+                        this.LAST_STATION = STATION
+                        this.LAST_SYSTEM = STAR_SYSTEM
                 else:
                     this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                     if this.SEARCH_IMPORT == 0:
-                        setStatus(f"От станции нет путей!")
+                        setStatus(f"От станции нет маршрутов!")
                     else:
-                        setStatus(f"На станцию нет путей!")
+                        setStatus(f"На станцию нет маршрутов!")
             else:
                 this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                 if this.SEARCH_IMPORT == 0:
-                    setStatus(f"От станции нет путей!")
+                    setStatus(f"От станции нет маршрутов!")
                 else:
-                    setStatus(f"На станцию нет путей!")
+                    setStatus(f"На станцию нет маршрутов!")
             setStateBtn(tk.NORMAL)
         else:
             this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Catch request error")
@@ -842,7 +963,7 @@ def parseData(html):
             
             # Дистанция
             distance = block.select_one(distance_path).text.strip()
-            distance = re.sub(r"Ly", "Св.л", distance)
+            distance = re.sub(r"Ly", "св.л", distance)
 
             # Дистанция станции
             station_distance = block.select_one(station_distance_path).text.strip()
@@ -955,7 +1076,7 @@ def renderRoute(route):
             case 2:
                 surface = 0
 
-        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2="+str(quote(route.system_name + ' [' + route.station_name + ']'))+"&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2="+str(quote(route.station_name + ' [' + route.system_name + ']'))+"&pi1="+str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
 
         demandText = "📶"
         this.labels.demand["fg"] = "#ffcc00"
@@ -974,7 +1095,7 @@ def renderRoute(route):
         this.labels.place["text"] = f"{route.station_name} [{route.system_name}]"
         # this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
         this.labels.place["url"] = url
-        this.labels.distance["text"] = f"{route.distance} >> {route.station_distance} Св.c"
+        this.labels.distance["text"] = f"{route.distance}|{route.station_distance}св.c"
 
         this.labels.resource["text"] = ITEMS.get(route.resource, route.resource)
         this.labels.demand["text"] = demandText
@@ -983,14 +1104,39 @@ def renderRoute(route):
         else:
             this.labels.resource["url"] = f"https://elite-dangerous.fandom.com/wiki/{quote(route.resource)}"
 
-        this.labels.supply["text"] = f"{int(route.count):,} Ед."
-        this.labels.price["text"] = f"{int(route.price):,} Кр."
+        this.labels.supply["text"] = f"{int(route.count):,} Ед"
+        this.labels.price["text"] = f"{int(route.price):,} Кр"
 
-        this.labels.earn["text"] = f"{int(route.revenue):,} Кр."
-        this.labels.detailEarn["text"] = f"+{int(route.sell_percent):,}% или +{int(route.sell_per_item):,} Кр./Ед."
+        this.labels.earn["text"] = f"{int(route.revenue):,} Кр"
+        this.labels.detailEarn["text"] = f"+{int(route.sell_per_item):,} Кр/Ед"
+        this.labels.margin["text"] = f"+{int(route.sell_percent):,}%"
 
         this.labels.updated["text"] = route.update
         setStateBtn(tk.NORMAL)
+    except Exception as e:
+        this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {e}")
+        this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {traceback.format_exc()}")
+
+def clearRoute():
+    try:
+        pl1 = quote(this.STATION+" ["+this.STAR_SYSTEM+"]")
+        demandText = "📶"
+        this.labels.demand["fg"] = "#636362"
+
+        this.labels.stationsCountLabel["text"] = "-/-"
+        this.labels.itemsCountLabel["text"] = "-/-"
+        this.labels.place["text"] = ""
+        this.labels.place["url"] = ""
+        this.labels.distance["text"] = "-|-"
+        this.labels.resource["text"] = ""
+        this.labels.demand["text"] = demandText
+        this.labels.resource["url"] = ""
+        this.labels.supply["text"] = ""
+        this.labels.price["text"] = ""
+        this.labels.earn["text"] = ""
+        this.labels.detailEarn["text"] = ""
+        this.labels.margin["text"] = ""
+        this.labels.updated["text"] = ""
     except Exception as e:
         this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {e}")
         this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {traceback.format_exc()}")
