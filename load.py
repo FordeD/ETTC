@@ -35,7 +35,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.3.2"
+PLUGIN_VERSION = "1.3.3.3"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -867,11 +867,8 @@ def doRequest():
             distance = str(this.TIMED_ROUTE_DISTANCE)
         url = this.SEARCH_URL+"?ps1="+str(pl1)+"&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
         if this.LOCK_ROUTE and this.SEARCH_STATION != "" and this.SEARCH_SYSTEM != "":
-            this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Use fixed stations")
             pl1 = quote(this.LAST_STATION+" ["+this.LAST_SYSTEM+"]")
             url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2="+str(quote(this.SEARCH_STATION + ' [' + this.SEARCH_SYSTEM + ']'))+"&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
-        else:
-            this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Use dynamic stations")
         this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search routes from: {url}")
         response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
@@ -955,7 +952,6 @@ def parseData(html):
         
     
     for block in soup.find_all("div", class_="mainblock traderoutebox taggeditem", attrs={"data-tags": f'["{route_type}"]'}):
-        this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {block}")
         try:
             # Извлечение имени станции
             station_elem = block.select_one(station_elem_path)
