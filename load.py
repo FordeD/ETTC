@@ -35,7 +35,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.3.1"
+PLUGIN_VERSION = "1.3.3.2"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -899,13 +899,13 @@ def doRequest():
                         this.LAST_STATION = STATION
                         this.LAST_SYSTEM = STAR_SYSTEM
                 else:
-                    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] 1 Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
+                    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                     if not this.SEARCH_IMPORT:
                         setStatus(f"От станции нет маршрутов!")
                     else:
                         setStatus(f"На станцию нет маршрутов!")
             else:
-                this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] 2 Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
+                this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
                 if not this.SEARCH_IMPORT:
                     setStatus(f"От станции нет маршрутов!")
                 else:
