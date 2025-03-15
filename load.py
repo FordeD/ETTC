@@ -35,7 +35,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.3"
+PLUGIN_VERSION = "1.3.3.1"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -355,8 +355,8 @@ SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
 # Для тестов
-# STAR_SYSTEM = "Aornum"
-# STATION = "Agassiz City"
+# STAR_SYSTEM = "Shinrarta Dezhra"
+# STATION = "Jameson Memorial"
 IS_REQUESTING = False
 HTTPS_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Safari/537.36', 
@@ -615,8 +615,8 @@ def plugin_app(parent: tk.Frame):
     this.labels.addDistBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.addDist)
     this.labels.addDistBtn.grid(row=1, column=5, pady=2, sticky="nsew")
 
-    this.labels.status = tk.Label(frame, text="", justify=tk.CENTER)
-    this.labels.status.grid(row=2, column=0, columnspan=4, sticky="nsew")
+    this.labels.status = tk.Label(frame, text="", justify=tk.LEFT)
+    this.labels.status.grid(row=2, column=0, columnspan=5, sticky=tk.W)
     this.labels.stationCopyBtn = tk.Button(frame, text="🗎", state=tk.DISABLED, command=this.copyStationName)
     this.labels.stationCopyBtn.grid(row=2, column=5, columnspan=1, pady=2, sticky="nsew")
     create_tooltip(this.labels.stationCopyBtn, "Скопировать название станции")
@@ -865,10 +865,13 @@ def doRequest():
         distance = str(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
         if this.TIMED_ROUTE_DISTANCE > 0:
             distance = str(this.TIMED_ROUTE_DISTANCE)
-        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2=&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
-        if this.LOCK_ROUTE and len(this.SEARCH_STATION) > 0 and len(this.SEARCH_SYSTEM) > 0:
+        url = this.SEARCH_URL+"?ps1="+str(pl1)+"&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        if this.LOCK_ROUTE and this.SEARCH_STATION != "" and this.SEARCH_SYSTEM != "":
+            this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Use fixed stations")
             pl1 = quote(this.LAST_STATION+" ["+this.LAST_SYSTEM+"]")
             url = this.SEARCH_URL+"?ps1="+str(pl1)+"&ps2="+str(quote(this.SEARCH_STATION + ' [' + this.SEARCH_SYSTEM + ']'))+"&pi1="+str(distance)+"&pi3="+str(config.get(this.PREFNAME_MAX_PRICE_AGE))+"&pi4="+str(config.get(this.PREFNAME_LANDING_PAD))+"&pi6="+str(config.get(this.PREFNAME_MAX_STATION_DISTANCE))+"&pi5="+str(config.get(this.PREFNAME_INCLUDE_SURFACES))+"&pi7="+str(cariers)+"&ps3=&pi2="+str(config.get(this.PREFNAME_MIN_SUPPLY))+"&pi13="+str(config.get(this.PREFNAME_MIN_DEMAND))+"&pi10="+str(config.get(this.PREFNAME_MIN_CAPACITY))+"&pi8=0"
+        else:
+            this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Use dynamic stations")
         this.LOG.write(f"[INFO] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search routes from: {url}")
         response = requests.get(url=url, headers=this.HTTPS_HEADERS, timeout=10)
 
@@ -885,7 +888,10 @@ def doRequest():
                     #if this.TIMED_ROUTE_DISTANCE > 0:
                     #   setStatus(f"Маршруты {this.STATION} [{this.STAR_SYSTEM}] до {this.TIMED_ROUTE_DISTANCE} св.л!")
                     #else:
-                    setStatus(f"Маршруты {this.STATION} [{this.STAR_SYSTEM}]")
+                    if not SEARCH_IMPORT: 
+                        setStatus(f"От {this.STATION} [{this.STAR_SYSTEM}]")
+                    else:
+                        setStatus(f"К {this.STATION} [{this.STAR_SYSTEM}]")
                     if not this.LOCK_ROUTE:
                         station = this.STATIONS[this.STATION_INDEX]
                         this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
@@ -893,14 +899,14 @@ def doRequest():
                         this.LAST_STATION = STATION
                         this.LAST_SYSTEM = STAR_SYSTEM
                 else:
-                    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
-                    if this.SEARCH_IMPORT == 0:
+                    this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] 1 Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
+                    if not this.SEARCH_IMPORT:
                         setStatus(f"От станции нет маршрутов!")
                     else:
                         setStatus(f"На станцию нет маршрутов!")
             else:
-                this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
-                if this.SEARCH_IMPORT == 0:
+                this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] 2 Search empty routes, {pl1} - Import: {this.SEARCH_IMPORT}")
+                if not this.SEARCH_IMPORT:
                     setStatus(f"От станции нет маршрутов!")
                 else:
                     setStatus(f"На станцию нет маршрутов!")
@@ -940,16 +946,16 @@ def parseData(html):
     sell_per_item_path = "div:nth-of-type(10) > .traderouteboxprofit > div:nth-of-type(1) > .itempairvalue.itempairvalueright"
     demand_path = ".traderouteboxfromleft > div:nth-of-type(3) > .itempairvalue"
 
-    if this.SEARCH_IMPORT == 1:
+    if this.SEARCH_IMPORT:
         route_type = 2
         recource_path = ".traderouteboxfromright > div:nth-of-type(1) > .itempairvalue > a > span.avoidwrap"
         count_path = ".traderouteboxtoleft > div:nth-of-type(3) > .itempairvalue"
         price_path = ".traderouteboxtoleft > div:nth-of-type(2) > .itempairvalue"
         demand_path = ".traderouteboxfromright > div:nth-of-type(3) > .itempairvalue"
-        station_distance_path = "div:nth-of-type(4) > .itempaircontainer > .itempairvalue > .minor"
         
     
     for block in soup.find_all("div", class_="mainblock traderoutebox taggeditem", attrs={"data-tags": f'["{route_type}"]'}):
+        this.LOG.write(f"[DEBUG] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {block}")
         try:
             # Извлечение имени станции
             station_elem = block.select_one(station_elem_path)
@@ -1095,7 +1101,7 @@ def renderRoute(route):
         this.labels.place["text"] = f"{route.station_name} [{route.system_name}]"
         # this.labels.place["url"] = f"https://inara.cz/elite/station/?search={quote(route.system_name + '[' + route.station_name + ']')}"
         this.labels.place["url"] = url
-        this.labels.distance["text"] = f"{route.distance}|{route.station_distance}св.c"
+        this.labels.distance["text"] = f"{route.distance} | {route.station_distance}св.c"
 
         this.labels.resource["text"] = ITEMS.get(route.resource, route.resource)
         this.labels.demand["text"] = demandText
