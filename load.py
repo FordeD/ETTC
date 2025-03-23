@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 import sys
 import json
 import requests
+import webbrowser
 from bs4 import BeautifulSoup
 import re
 from ttkHyperlinkLabel import HyperlinkLabel as hll
@@ -35,7 +36,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.3.3.3"
+PLUGIN_VERSION = "1.4.1"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -354,6 +355,12 @@ STATIONS_COUNT = 0
 SEARCH_THREAD = None
 STAR_SYSTEM = None
 STATION = None
+SORTING = {
+    "REVENUE": True,
+    "MARGIN": False,
+    "DEMAND": False
+}
+SELECTED_SORTING = tk.StringVar(value="REVENUE")
 # Для тестов
 # STAR_SYSTEM = "Shinrarta Dezhra"
 # STATION = "Jameson Memorial"
@@ -372,6 +379,7 @@ LAST_STATION = ""
 LAST_SYSTEM = ""
 LOCK_ROUTE = False
 SEARCH_URL = "https://inara.cz/elite/market-traderoutes-search/"
+UPDATE_URL = "https://github.com/FordeD/ETTC/releases"
 
 class TradeRoute:
     def __init__(self, station_name, system_name, distance, resource, count, price, revenue, update, sell_percent, sell_per_item, demand, station_distance):
@@ -426,6 +434,23 @@ class ETTC():
     updated: None
     status: None
     spacer: None
+    updateBtn: None
+    sortLabel: None
+    sortRevenue: None
+    sortMargin: None
+    sortDemand: None
+
+def checkVersion():
+	try:
+		req = requests.get(url='https://api.github.com/repos/FordeD/ETTC/releases/latest')
+	except:
+		return -1
+	if not req.status_code == requests.codes.ok:
+		return -1 # Error
+	data = req.json()
+	if data['tag_name'] == this.PLUGIN_VERSION:
+		return 1 # Newest
+	return 0 # Newer version available
 
 def setStateBtn(state):
     if this.labels.findImportBtn["state"] != state:
@@ -529,6 +554,9 @@ def journal_entry(cmdr, isbeta, system, station, entry, state):
     if system and station and (this.STAR_SYSTEM is not system or this.STATION is not station):
         this.STAR_SYSTEM = system
         this.STATION = station
+        if not this.LOCK_ROUTE:
+            this.LAST_STATION = this.STATION
+            this.LAST_SYSTEM = this.STAR_SYSTEM
 
     if this.STATION == this.ROUTES[this.ROUTE_INDEX].station_name:
         if this.SEARCH_IMPORT:
@@ -599,6 +627,15 @@ def plugin_app(parent: tk.Frame):
     #this.labels.searchImportLabel = tk.Label(frame, text="Искать импорт", justify=tk.LEFT)
     #this.labels.searchImportLabel.grid(row=0, column=1, columnspan=1, sticky=tk.W)
 
+    this.labels.sortLabel = tk.Label(frame, text=f"Сортировка:", justify=tk.LEFT)
+    this.labels.sortLabel.grid(row=0, column=0, sticky=tk.E)
+    this.labels.sortRevenue = tk.Radiobutton(frame, text=f"Выручка", variable=this.SELECTED_SORTING, value="REVENUE", command=this.updateSorting, relief="flat", justify=tk.LEFT, fg="#FA8100")
+    this.labels.sortRevenue.grid(row=0, column=1, sticky=tk.E)
+    this.labels.sortMargin = tk.Radiobutton(frame, text=f"Маржа", variable=this.SELECTED_SORTING, value="MARGIN", command=this.updateSorting, relief="flat", justify=tk.LEFT, fg="#FA8100")
+    this.labels.sortMargin.grid(row=0, column=2, sticky=tk.E)
+    this.labels.sortDemand = tk.Radiobutton(frame, text=f"Спрос", variable=this.SELECTED_SORTING, value="DEMAND", command=this.updateSorting, relief="flat", justify=tk.LEFT, fg="#FA8100")
+    this.labels.sortDemand.grid(row=0, column=4, sticky=tk.E)
+
     this.labels.findImportBtn = tk.Button(frame, text="Импорт", state=tk.DISABLED, command=this.getBestImport)
     this.labels.findImportBtn.grid(row=1, column=0, pady=2, columnspan=1, sticky="nsew")
     this.labels.findExportBtn = tk.Button(frame, text="Экспорт", state=tk.DISABLED, command=this.getBestExport)
@@ -610,7 +647,7 @@ def plugin_app(parent: tk.Frame):
     this.labels.decDistBtn = tk.Button(frame, text="⬅️", state=tk.DISABLED, command=this.decDist)
     this.labels.decDistBtn.grid(row=1, column=3, pady=2, sticky="nsew")
     this.labels.distLabel = tk.Label(frame, text=f"{distance} св.л", justify=tk.LEFT)
-    this.labels.distLabel.grid(row=1, column=4, columnspan=1, sticky=tk.W)
+    this.labels.distLabel.grid(row=1, column=4, columnspan=1, sticky="nsew")
     create_tooltip(this.labels.distLabel, "Дистанция поиска маршрутов")
     this.labels.addDistBtn = tk.Button(frame, text="➡️", state=tk.DISABLED, command=this.addDist)
     this.labels.addDistBtn.grid(row=1, column=5, pady=2, sticky="nsew")
@@ -687,11 +724,20 @@ def plugin_app(parent: tk.Frame):
     this.labels.updated = tk.Label(frame, text="", justify=tk.LEFT)
     this.labels.updated.grid(row=12, column=1, columnspan=2, sticky=tk.W)
 
+    if checkVersion() == 0:
+        this.labels.updateBtn = tk.Button(frame, text="Доступно обновление плагина", state=tk.NORMAL, command=this.openUpdateLink)
+        this.labels.updateBtn.grid(row=14, column=0, columnspan=6, pady=2, sticky="nsew")
+
     # frame.columnconfigure(12, weight=1)
 
     this.labels.spacer = tk.Frame(frame)
     setStateBtn(tk.NORMAL)
     return frame
+
+def updateSorting():
+    for key in SORTING:
+        SORTING[key] = (SELECTED_SORTING.get() == key)
+
 
 def plugin_prefs(parent, cmdr, isbeta):
     frame = nb.Frame(parent)
@@ -753,6 +799,9 @@ def plugin_prefs(parent, cmdr, isbeta):
 def cmdr_data(data, is_beta):
     this.STAR_SYSTEM = data['lastSystem']['name']
     this.STATION = data['lastStarport']['name']
+    if not this.LOCK_ROUTE:
+        this.LAST_STATION = this.STATION
+        this.LAST_SYSTEM = this.STAR_SYSTEM
 
 def copyStationName():
     pyperclip.copy(f"{this.STATION}")
@@ -807,8 +856,8 @@ def getNextStation():
     if not this.LOCK_ROUTE:
         this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
         this.SEARCH_SYSTEM = this.ROUTES[station][this.ROUTE_INDEX].system_name
-        this.LAST_STATION = STATION
-        this.LAST_SYSTEM = STAR_SYSTEM
+        this.LAST_STATION = this.STATION
+        this.LAST_SYSTEM = this.STAR_SYSTEM
     renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
 def getPrevStation():
@@ -819,8 +868,8 @@ def getPrevStation():
     if not this.LOCK_ROUTE:
         this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
         this.SEARCH_SYSTEM = this.ROUTES[station][this.ROUTE_INDEX].system_name
-        this.LAST_STATION = STATION
-        this.LAST_SYSTEM = STAR_SYSTEM
+        this.LAST_STATION = this.STATION
+        this.LAST_SYSTEM = this.STAR_SYSTEM
     renderRoute(this.ROUTES[station][this.ROUTE_INDEX])
 
 def getNextItem():
@@ -847,6 +896,9 @@ def addDist():
         this.TIMED_ROUTE_DISTANCE = int(config.get(this.PREFNAME_MAX_ROUTE_DISTANCE))
     this.TIMED_ROUTE_DISTANCE += int(config.get(PREFNAME_ADD_ROUTE_DISTANCE))
     this.labels.distLabel["text"] = f"{this.TIMED_ROUTE_DISTANCE} св.л"
+
+def openUpdateLink():
+    webbrowser.open(UPDATE_URL)
 
 def doRequest():
     try:
@@ -930,7 +982,7 @@ def parseData(html):
     this.ROUTES_COUNT.clear()
     timed_routes = defaultdict(list)
     route_type = 1
-    station_elem_path = "div:nth-of-type(2) > a > span.standardcase.standardcolor.nowrap"
+    station_elem_path = "div:nth-of-type(2) > a > span.standardcase.standardcolor"
     system_elem_path = "div:nth-of-type(2) > a > span.uppercase.nowrap"
     distance_path = "div:nth-of-type(10) > div:nth-of-type(1) > div:nth-of-type(1) > div.itempairvalue.itempairvalueright > span.bigger"
     station_distance_path = "div:nth-of-type(7) > .itempaircontainer > .itempairvalue > .minor"
@@ -1009,6 +1061,7 @@ def parseData(html):
             sell_percent = block.select_one(sell_percent_path).text.strip()
             sell_percent = re.sub(r",", "", sell_percent)  # Убираем запятые
             sell_percent = re.sub(r'\D', '', sell_percent) # Убираем спец. символ ︎
+            sell_percent = int(sell_percent)
             
             # Доход
             revenue = block.select_one(revenue_path).text.strip()
@@ -1058,6 +1111,19 @@ def parseData(html):
     for station in this.STATIONS:
             if len(this.ROUTES[station]) > 0:
                 this.ROUTES_COUNT[station] = len(this.ROUTES[station])
+
+    try:
+        tempActualStations = list(this.ROUTES.keys())
+        if this.SORTING['MARGIN']:
+            for station in tempActualStations:
+                this.ROUTES[station].sort(key=lambda x: x.sell_percent, reverse=True)
+        if this.SORTING["DEMAND"]:
+            for station in tempActualStations:
+                this.ROUTES[station].sort(key=lambda x: x.demand, reverse=True)
+    except Exception as e:
+            this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] on sorting routes: {e}")
+            this.LOG.write(f"[ERROR] [{PLUGIN_NAME} v{PLUGIN_VERSION}] {traceback.format_exc()}")
+
     this.STATIONS = list(this.ROUTES_COUNT.keys())
     this.STATIONS_COUNT = len(this.ROUTES_COUNT)
 
