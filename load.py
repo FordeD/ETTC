@@ -36,7 +36,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.4.2"
+PLUGIN_VERSION = "1.4.3"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -926,14 +926,14 @@ def doRequest():
                     renderRoute(this.ROUTES[this.STATIONS[this.STATION_INDEX]][0])
                     if not SEARCH_IMPORT: 
                         if not this.LOCK_ROUTE:
-                            setStatus(f"От {this.LAST_STATION} [{this.LAST_SYSTEM}]")
-                        else:
                             setStatus(f"От {this.STATION} [{this.STAR_SYSTEM}]")
+                        else:
+                            setStatus(f"От {this.LAST_STATION} [{this.LAST_SYSTEM}]")
                     else:
                         if not this.LOCK_ROUTE:
-                            setStatus(f"К {this.LAST_STATION} [{this.LAST_SYSTEM}]")
-                        else:
                             setStatus(f"К {this.STATION} [{this.STAR_SYSTEM}]")
+                        else:
+                            setStatus(f"К {this.LAST_STATION} [{this.LAST_SYSTEM}]")
                     if not this.LOCK_ROUTE:
                         station = this.STATIONS[this.STATION_INDEX]
                         this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
