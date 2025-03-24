@@ -36,7 +36,7 @@ except ImportError:  ## test mode
 this = sys.modules[__name__]
 
 PLUGIN_NAME = "ETTC RU"
-PLUGIN_VERSION = "1.4.1"
+PLUGIN_VERSION = "1.4.2"
 
 LOG = LogContext()
 LOG.set_filename(os.path.join(os.path.abspath(os.path.dirname(__file__)), "plugin.log"))
@@ -305,16 +305,6 @@ ITEMS = dict([
     ("Agronomic Treatment", "Средство очистки почвы"),
     ("Surface Stabilisers", "Стабилизаторы поверхности"),
     ("Tritium", "Тритий"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
-    ("Bauxite", "Боксит"),
 ])
 
 
@@ -934,13 +924,16 @@ def doRequest():
             if this.STATIONS_COUNT > 0:
                 if this.ROUTES_COUNT[this.STATIONS[this.STATION_INDEX]] > 0:
                     renderRoute(this.ROUTES[this.STATIONS[this.STATION_INDEX]][0])
-                    #if this.TIMED_ROUTE_DISTANCE > 0:
-                    #   setStatus(f"Маршруты {this.STATION} [{this.STAR_SYSTEM}] до {this.TIMED_ROUTE_DISTANCE} св.л!")
-                    #else:
                     if not SEARCH_IMPORT: 
-                        setStatus(f"От {this.STATION} [{this.STAR_SYSTEM}]")
+                        if not this.LOCK_ROUTE:
+                            setStatus(f"От {this.LAST_STATION} [{this.LAST_SYSTEM}]")
+                        else:
+                            setStatus(f"От {this.STATION} [{this.STAR_SYSTEM}]")
                     else:
-                        setStatus(f"К {this.STATION} [{this.STAR_SYSTEM}]")
+                        if not this.LOCK_ROUTE:
+                            setStatus(f"К {this.LAST_STATION} [{this.LAST_SYSTEM}]")
+                        else:
+                            setStatus(f"К {this.STATION} [{this.STAR_SYSTEM}]")
                     if not this.LOCK_ROUTE:
                         station = this.STATIONS[this.STATION_INDEX]
                         this.SEARCH_STATION = this.ROUTES[station][this.ROUTE_INDEX].station_name
